@@ -24,7 +24,8 @@ router.post('/predictions/run', async (req: Request, res: Response) => {
 
 // List predictions
 router.get('/predictions', async (req: Request, res: Response) => {
-  const preds = await predictionService['predictionRepo'].find({ order: { predictedDate: 'ASC' } });
+  const municipalityId = (req.query.municipalityId as string) || undefined;
+  const preds = await predictionService.findAll(municipalityId);
   res.json(preds);
 });
 

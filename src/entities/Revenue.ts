@@ -20,6 +20,9 @@ export class Revenue {
   @Column({ type: 'jsonb', nullable: true })
   parameters?: any;
 
+  @Column({ nullable: true })
+  municipalityId?: string;
+
   @CreateDateColumn()
   createdAt: Date;
 

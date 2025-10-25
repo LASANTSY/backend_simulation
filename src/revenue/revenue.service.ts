@@ -4,8 +4,11 @@ import { Revenue } from '../entities/Revenue';
 export class RevenueService {
   private repo = AppDataSource.getRepository(Revenue);
 
-  async findAll(): Promise<Revenue[]> {
-    return this.repo.find();
+  async findAll(municipalityId?: string): Promise<Revenue[]> {
+    if (municipalityId) {
+      return this.repo.find({ where: { municipalityId }, order: { date: 'ASC' } as any } as any);
+    }
+    return this.repo.find({ order: { date: 'ASC' } });
   }
 
   async findOne(id: string): Promise<Revenue | null> {

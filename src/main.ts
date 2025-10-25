@@ -27,19 +27,19 @@ async function bootstrap() {
   app.use(morgan('dev'));
 
   // Swagger UI
-  app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+  app.use('/serviceprediction/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
   // Public routes
   // context GET endpoints removed - contexts must be provided when creating simulations
-  app.use('/api', predictionPublicRouter);
+  app.use('/serviceprediction', predictionPublicRouter);
 
-  app.use('/api', revenueRouter);
+  app.use('/serviceprediction', revenueRouter);
   // Note: no auth middleware applied - all routes are public
-  app.use('/api', predictionRouter);
-  app.use('/api', simulationRouter);
-  app.use('/api', transactionRouter);
-  app.use('/api', aiRouter);
-  app.use('/api', optimizerRouter);
+  app.use('/serviceprediction', predictionRouter);
+  app.use('/serviceprediction', simulationRouter);
+  app.use('/serviceprediction', transactionRouter);
+  app.use('/serviceprediction', aiRouter);
+  app.use('/serviceprediction', optimizerRouter);
 
   // Error handler
   app.use(errorHandler as any);
@@ -47,7 +47,7 @@ async function bootstrap() {
   const port = parseInt(process.env.APP_PORT || '3000', 10);
   app.listen(port, () => {
     console.log(`Server listening on http://localhost:${port}`);
-    console.log(`Swagger docs at http://localhost:${port}/api/docs`);
+    console.log(`Swagger docs at http://localhost:${port}/serviceprediction/docs`);
   });
 }
 

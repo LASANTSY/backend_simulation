@@ -11,6 +11,9 @@ export class Demographic {
   @Column({ type: 'jsonb' })
   data: any;
 
+  @Column({ nullable: true })
+  municipalityId?: string;
+
   @CreateDateColumn()
   fetchedAt: Date;
 }

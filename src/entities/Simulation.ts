@@ -20,6 +20,9 @@ export class Simulation {
   @Column({ default: 'pending' })
   status: string;
 
+  @Column({ nullable: true })
+  municipalityId?: string;
+
   @CreateDateColumn()
   createdAt: Date;
 

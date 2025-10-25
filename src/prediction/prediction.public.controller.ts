@@ -8,7 +8,7 @@ import transactionService from '../integrations/transaction.service';
 const router = express.Router();
 
 // Public endpoint: run predictions based on external transactions for a municipality (no auth)
-router.post('/public/predictions/run', async (req: Request, res: Response) => {
+router.post('/predictions/run', async (req: Request, res: Response) => {
   const dto = plainToInstance(PredictionRunDto, req.body || {});
   const errors = await validate(dto);
   if (errors.length > 0) return res.status(400).json({ errors });

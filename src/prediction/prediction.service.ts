@@ -7,6 +7,13 @@ export class PredictionService {
   private revenueRepo = AppDataSource.getRepository(Revenue);
   private predictionRepo = AppDataSource.getRepository(Prediction);
 
+  async findAll(municipalityId?: string) {
+    if (municipalityId) {
+      return this.predictionRepo.find({ where: { municipalityId }, order: { predictedDate: 'ASC' } as any } as any);
+    }
+    return this.predictionRepo.find({ order: { predictedDate: 'ASC' } });
+  }
+
   // Helper: aggregate revenues by month (YYYY-MM) and return array of { period: 'YYYY-MM', amount }
   async getMonthlySums(): Promise<{ period: string; amount: number }[]> {
     const rows = await this.revenueRepo

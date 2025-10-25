@@ -10,7 +10,7 @@ const service = new RevenueService();
 
 /**
  * @openapi
- * /api/revenues:
+ * /serviceprediction/revenues:
  *   get:
  *     summary: List revenues
  *     tags:
@@ -21,7 +21,8 @@ const service = new RevenueService();
  */
 // GET /revenues
 router.get('/revenues', async (req: Request, res: Response) => {
-  const items = await service.findAll();
+  const municipalityId = (req.query.municipalityId as string) || undefined;
+  const items = await service.findAll(municipalityId);
   res.json(items);
 });
 
@@ -35,7 +36,7 @@ router.get('/revenues/:id', async (req: Request, res: Response) => {
 
 /**
  * @openapi
- * /api/revenues:
+ * /serviceprediction/revenues:
  *   post:
  *     summary: Create a revenue
  *     tags:
@@ -61,7 +62,7 @@ router.post('/revenues', async (req: Request, res: Response) => {
 
 /**
  * @openapi
- * /api/revenues/{id}:
+ * /serviceprediction/revenues/{id}:
  *   put:
  *     summary: Update a revenue
  *     tags:

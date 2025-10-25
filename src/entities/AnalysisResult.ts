@@ -15,6 +15,9 @@ export class AnalysisResult {
   @Column({ nullable: true })
   summary?: string;
 
+  @Column({ nullable: true })
+  municipalityId?: string;
+
   @CreateDateColumn()
   createdAt: Date;
 

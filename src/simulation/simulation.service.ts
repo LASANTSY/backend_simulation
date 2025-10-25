@@ -157,7 +157,10 @@ export class SimulationService {
     }
   }
 
-  async findAllSimulations() {
+  async findAllSimulations(municipalityId?: string) {
+    if (municipalityId) {
+      return this.simulationRepo.find({ where: { municipalityId }, order: { createdAt: 'DESC' } as any } as any);
+    }
     return this.simulationRepo.find({ order: { createdAt: 'DESC' } });
   }
 

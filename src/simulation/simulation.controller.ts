@@ -32,8 +32,9 @@ router.post('/simulations', async (req: Request, res: Response) => {
 });
 
 // GET /simulations
-router.get('/simulations', async (_req: Request, res: Response) => {
-  const sims = await simulationService.findAllSimulations();
+router.get('/simulations', async (req: Request, res: Response) => {
+  const municipalityId = (req.query.municipalityId as string) || undefined;
+  const sims = await simulationService.findAllSimulations(municipalityId);
   res.json(sims);
 });
 
