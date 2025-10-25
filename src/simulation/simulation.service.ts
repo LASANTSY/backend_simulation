@@ -65,16 +65,21 @@ export class SimulationService {
     }
 
     // fetch baseline predictions for these months (sum predictedAmount)
+    // Use text comparison on dates to avoid Postgres attempting to parse an array literal as a date.
     const baselinePreds = await this.predictionRepo
       .createQueryBuilder('p')
       .where('p.period = :period', { period: 'monthly' })
-      .andWhere('p.predictedDate IN (:...months)', { months })
+      .andWhere("to_char(p.predictedDate, 'YYYY-MM-DD') IN (:...months)", { months })
       .orderBy('p.predictedDate', 'ASC')
       .getMany();
 
     // If some months missing baseline predictions, fall back to 0 for those months
     const baselineMap: Record<string, number> = {};
-    for (const d of baselinePreds) baselineMap[(d as any).predictedDate] = Number(d.predictedAmount || 0);
+    for (const d of baselinePreds) {
+      const pd = (d as any).predictedDate;
+      const key = pd instanceof Date ? pd.toISOString().slice(0, 10) : String(pd);
+      baselineMap[key] = Number((d as any).predictedAmount || 0);
+    }
 
     const baselineSeries = months.map((md) => baselineMap[md] ?? 0);
     const baselineTotal = baselineSeries.reduce((s, v) => s + v, 0);

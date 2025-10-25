@@ -139,9 +139,19 @@ export class OptimizerService {
 
     // fetch baseline predictions for the months
     const predRepo = AppDataSource.getRepository('Prediction' as any);
-    const preds = await predRepo.find({ where: { period: 'monthly', predictedDate: months.map((m) => m.date) } });
+    // Use QueryBuilder and text comparison to avoid passing an array that Postgres might try to cast to date
+    const preds = await predRepo
+      .createQueryBuilder('p')
+      .where('p.period = :period', { period: 'monthly' })
+      .andWhere("to_char(p.predictedDate, 'YYYY-MM-DD') IN (:...months)", { months: months.map((m) => m.date) })
+      .getMany();
+
     const baselineMap: Record<string, number> = {};
-    for (const p of preds as any[]) baselineMap[p.predictedDate] = Number(p.predictedAmount || 0);
+    for (const p of preds as any[]) {
+      const pd = (p as any).predictedDate;
+      const key = pd instanceof Date ? pd.toISOString().slice(0, 10) : String(pd);
+      baselineMap[key] = Number((p as any).predictedAmount || 0);
+    }
     const baselineSeries = months.map((m) => baselineMap[m.date] ?? 0);
 
     // fetch context

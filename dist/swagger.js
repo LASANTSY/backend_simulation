@@ -7,7 +7,7 @@ const swaggerSpec = {
         version: '0.1.0',
         description: 'API pour la gestion des recettes, simulations et previsions. Les routes sont exposees sous /serviceprediction.',
     },
-    servers: [{ url: '/serviceprediction', description: 'Serveur local (prefixe /serviceprediction)' }],
+    servers: [{ url: '/', description: 'Serveur local (root) — les paths incluent /serviceprediction' }],
     tags: [
         { name: 'revenue', description: 'Gestion des recettes (CRUD)' },
         { name: 'prediction', description: 'Calculs et stockage des previsions' },
@@ -17,7 +17,7 @@ const swaggerSpec = {
         { name: 'optimization', description: 'Optimisation du timing' },
     ],
     paths: {
-        '/predictions/run': {
+        '/serviceprediction/predictions/run': {
             post: {
                 tags: ['prediction'],
                 summary: "Lancer les previsions a partir des transactions d'une municipalite",
@@ -35,7 +35,7 @@ const swaggerSpec = {
                 },
             },
         },
-        '/external/transactions/{municipalityId}': {
+        '/serviceprediction/external/transactions/{municipalityId}': {
             get: {
                 tags: ['integrations'],
                 summary: 'Proxy - obtenir les transactions pour une municipalite',
@@ -43,23 +43,46 @@ const swaggerSpec = {
                 responses: { '200': { description: 'Donnees renvoyees' }, '502': { description: 'Erreur passerelle' } },
             },
         },
-        '/revenues': {
-            get: { tags: ['revenue'], summary: 'Lister les recettes', responses: { '200': { description: 'Liste des recettes' } } },
+        '/serviceprediction/revenues': {
+            get: {
+                tags: ['revenue'],
+                summary: 'Lister les recettes',
+                parameters: [
+                    { name: 'municipalityId', in: 'query', required: false, schema: { type: 'string' }, description: 'Filtrer par identifiant de municipalité' },
+                ],
+                responses: { '200': { description: 'Liste des recettes' } },
+            },
             post: { tags: ['revenue'], summary: 'Creer une recette', requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/CreateRevenueDto' } } } }, responses: { '201': { description: 'Recette creee' } } },
         },
-        '/revenues/{id}': {
+        '/serviceprediction/revenues/{id}': {
             get: { tags: ['revenue'], summary: 'Recuperer une recette', parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }], responses: { '200': { description: 'OK' }, '404': { description: 'Non trouve' } } },
             put: { tags: ['revenue'], summary: 'Mettre a jour une recette', requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/UpdateRevenueDto' } } } }, responses: { '200': { description: 'Mis a jour' } } },
             delete: { tags: ['revenue'], summary: 'Supprimer une recette', responses: { '204': { description: 'Supprime' } } },
         },
-        '/predictions': { get: { tags: ['prediction'], summary: 'Lister les previsions enregistrees', responses: { '200': { description: 'OK' } } } },
-        '/simulations': {
-            post: { tags: ['simulation'], summary: 'Creer et executer une simulation (IA integree)', requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/CreateSimulationDto' } } } }, responses: { '201': { description: 'Simulation creee et enrichie' }, '400': { description: 'Requete invalide' } } },
-            get: { tags: ['simulation'], summary: 'Lister les simulations', responses: { '200': { description: 'OK' } } },
+        '/serviceprediction/predictions': {
+            get: {
+                tags: ['prediction'],
+                summary: 'Lister les previsions enregistrees',
+                parameters: [
+                    { name: 'municipalityId', in: 'query', required: false, schema: { type: 'string' }, description: 'Filtrer par identifiant de municipalité' },
+                ],
+                responses: { '200': { description: 'OK' } },
+            },
         },
-        '/simulations/{id}': { get: { tags: ['simulation'], summary: 'Recuperer une simulation', parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }], responses: { '200': { description: 'OK' }, '404': { description: 'Non trouve' } } } },
-        '/simulations/{id}/optimize': { post: { tags: ['optimization'], summary: 'Optimiser le timing pour une simulation donnee', parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }], responses: { '200': { description: 'Recommandations' }, '400': { description: 'Mauvaise requete' } } } },
-        '/analysis-results/{id}/enrich': { post: { tags: ['ai'], summary: 'Enrichir un resultat (pour usage direct)', parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }], responses: { '200': { description: 'Analyse enrichie' }, '500': { description: 'Erreur IA' } } } },
+        '/serviceprediction/simulations': {
+            post: { tags: ['simulation'], summary: 'Creer et executer une simulation (IA integree)', requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/CreateSimulationDto' } } } }, responses: { '201': { description: 'Simulation creee et enrichie' }, '400': { description: 'Requete invalide' } } },
+            get: {
+                tags: ['simulation'],
+                summary: 'Lister les simulations',
+                parameters: [
+                    { name: 'municipalityId', in: 'query', required: false, schema: { type: 'string' }, description: 'Filtrer par identifiant de municipalité' },
+                ],
+                responses: { '200': { description: 'OK' } },
+            },
+        },
+        '/serviceprediction/simulations/{id}': { get: { tags: ['simulation'], summary: 'Recuperer une simulation', parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }], responses: { '200': { description: 'OK' }, '404': { description: 'Non trouve' } } } },
+        '/serviceprediction/simulations/{id}/optimize': { post: { tags: ['optimization'], summary: 'Optimiser le timing pour une simulation donnee', parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }], responses: { '200': { description: 'Recommandations' }, '400': { description: 'Mauvaise requete' } } } },
+        '/serviceprediction/analysis-results/{id}/enrich': { post: { tags: ['ai'], summary: 'Enrichir un resultat (pour usage direct)', parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }], responses: { '200': { description: 'Analyse enrichie' }, '500': { description: 'Erreur IA' } } } },
     },
     components: {
         schemas: {

@@ -50,12 +50,15 @@ class SimulationService {
         const baselinePreds = await this.predictionRepo
             .createQueryBuilder('p')
             .where('p.period = :period', { period: 'monthly' })
-            .andWhere('p.predictedDate IN (:...months)', { months })
+            .andWhere("to_char(p.predictedDate, 'YYYY-MM-DD') IN (:...months)", { months })
             .orderBy('p.predictedDate', 'ASC')
             .getMany();
         const baselineMap = {};
-        for (const d of baselinePreds)
-            baselineMap[d.predictedDate] = Number(d.predictedAmount || 0);
+        for (const d of baselinePreds) {
+            const pd = d.predictedDate;
+            const key = pd instanceof Date ? pd.toISOString().slice(0, 10) : String(pd);
+            baselineMap[key] = Number(d.predictedAmount || 0);
+        }
         const baselineSeries = months.map((md) => { var _a; return (_a = baselineMap[md]) !== null && _a !== void 0 ? _a : 0; });
         const baselineTotal = baselineSeries.reduce((s, v) => s + v, 0);
         const originalAmount = Number(revenue.amount || 0);

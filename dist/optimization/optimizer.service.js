@@ -126,10 +126,17 @@ class OptimizerService {
             cursor.setMonth(cursor.getMonth() + 1);
         }
         const predRepo = data_source_1.default.getRepository('Prediction');
-        const preds = await predRepo.find({ where: { period: 'monthly', predictedDate: months.map((m) => m.date) } });
+        const preds = await predRepo
+            .createQueryBuilder('p')
+            .where('p.period = :period', { period: 'monthly' })
+            .andWhere("to_char(p.predictedDate, 'YYYY-MM-DD') IN (:...months)", { months: months.map((m) => m.date) })
+            .getMany();
         const baselineMap = {};
-        for (const p of preds)
-            baselineMap[p.predictedDate] = Number(p.predictedAmount || 0);
+        for (const p of preds) {
+            const pd = p.predictedDate;
+            const key = pd instanceof Date ? pd.toISOString().slice(0, 10) : String(pd);
+            baselineMap[key] = Number(p.predictedAmount || 0);
+        }
         const baselineSeries = months.map((m) => { var _a; return (_a = baselineMap[m.date]) !== null && _a !== void 0 ? _a : 0; });
         const context = await context_service_1.default.fetchContextForSimulation(sim);
         let econScore = 0.5;
