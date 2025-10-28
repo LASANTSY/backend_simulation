@@ -9,43 +9,55 @@ var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.BboxQueryDto = void 0;
+exports.StoredQueryDto = void 0;
 const class_validator_1 = require("class-validator");
 const class_transformer_1 = require("class-transformer");
-class BboxQueryDto {
+class StoredQueryDto {
 }
 __decorate([
     (0, class_validator_1.IsOptional)(),
     (0, class_validator_1.IsString)(),
     __metadata("design:type", String)
-], BboxQueryDto.prototype, "city", void 0);
+], StoredQueryDto.prototype, "city", void 0);
 __decorate([
+    (0, class_validator_1.IsOptional)(),
     (0, class_transformer_1.Type)(() => Number),
-    (0, class_validator_1.IsNumber)(),
+    (0, class_validator_1.IsInt)(),
+    (0, class_validator_1.Min)(1),
+    __metadata("design:type", Number)
+], StoredQueryDto.prototype, "limit", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
+], StoredQueryDto.prototype, "since", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_transformer_1.Type)(() => Number),
     (0, class_validator_1.Min)(-90),
     (0, class_validator_1.Max)(90),
     __metadata("design:type", Number)
-], BboxQueryDto.prototype, "south", void 0);
+], StoredQueryDto.prototype, "south", void 0);
 __decorate([
+    (0, class_validator_1.IsOptional)(),
     (0, class_transformer_1.Type)(() => Number),
-    (0, class_validator_1.IsNumber)(),
     (0, class_validator_1.Min)(-180),
     (0, class_validator_1.Max)(180),
     __metadata("design:type", Number)
-], BboxQueryDto.prototype, "west", void 0);
+], StoredQueryDto.prototype, "west", void 0);
 __decorate([
+    (0, class_validator_1.IsOptional)(),
     (0, class_transformer_1.Type)(() => Number),
-    (0, class_validator_1.IsNumber)(),
     (0, class_validator_1.Min)(-90),
     (0, class_validator_1.Max)(90),
     __metadata("design:type", Number)
-], BboxQueryDto.prototype, "north", void 0);
+], StoredQueryDto.prototype, "north", void 0);
 __decorate([
+    (0, class_validator_1.IsOptional)(),
     (0, class_transformer_1.Type)(() => Number),
-    (0, class_validator_1.IsNumber)(),
     (0, class_validator_1.Min)(-180),
     (0, class_validator_1.Max)(180),
     __metadata("design:type", Number)
-], BboxQueryDto.prototype, "east", void 0);
-exports.BboxQueryDto = BboxQueryDto;
-//# sourceMappingURL=bbox-query.dto.js.map
+], StoredQueryDto.prototype, "east", void 0);
+exports.StoredQueryDto = StoredQueryDto;
+//# sourceMappingURL=stored-query.dto.js.map

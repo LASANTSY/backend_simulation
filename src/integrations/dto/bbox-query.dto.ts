@@ -1,7 +1,11 @@
-import { IsNumber, Min, Max } from 'class-validator';
+import { IsNumber, Min, Max, IsOptional, IsString } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class BboxQueryDto {
+  @IsOptional()
+  @IsString()
+  city?: string;
+
   @Type(() => Number)
   @IsNumber()
   @Min(-90)

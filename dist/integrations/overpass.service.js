@@ -26,7 +26,7 @@ out body;
 out skel qt;
 `;
     }
-    async fetchAndStoreMarkets(bbox) {
+    async fetchAndStoreMarkets(bbox, providedCity) {
         var _a;
         const query = this.buildQuery(bbox);
         let response;
@@ -82,7 +82,7 @@ out skel qt;
             const osmId = `${el.type}:${el.id}`;
             const tags = el.tags || {};
             const name = tags.name || null;
-            const city = tags['addr:city'] || tags.is_in || null;
+            const city = providedCity || tags['addr:city'] || tags.is_in || null;
             let existing = await repo.findOne({ where: { osm_id: osmId } });
             if (existing) {
                 existing.name = name || existing.name;

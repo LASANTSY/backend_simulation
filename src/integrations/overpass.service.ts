@@ -28,7 +28,7 @@ out skel qt;
 `;
   }
 
-  public async fetchAndStoreMarkets(bbox: Bbox): Promise<Marketplace[]> {
+  public async fetchAndStoreMarkets(bbox: Bbox, providedCity?: string): Promise<Marketplace[]> {
     const query = this.buildQuery(bbox);
     let response;
     try {
@@ -85,9 +85,10 @@ out skel qt;
       }
 
       const osmId = `${el.type}:${el.id}`;
-      const tags = el.tags || {};
-      const name = tags.name || null;
-      const city = tags['addr:city'] || tags.is_in || null;
+  const tags = el.tags || {};
+  const name = tags.name || null;
+  // prefer providedCity if given, otherwise try tags
+  const city = providedCity || tags['addr:city'] || tags.is_in || null;
 
       // upsert-like behavior: find existing by osm_id
       let existing = await repo.findOne({ where: { osm_id: osmId } });
@@ -96,7 +97,7 @@ out skel qt;
         existing.latitude = lat ?? existing.latitude;
         existing.longitude = lon ?? existing.longitude;
         existing.tags = tags;
-        existing.city = city || existing.city;
+  existing.city = city || existing.city;
         existing.fetched_at = new Date();
         existing = await repo.save(existing);
         results.push(existing);

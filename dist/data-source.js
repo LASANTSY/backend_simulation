@@ -23,7 +23,6 @@ var __importStar = (this && this.__importStar) || function (mod) {
     return result;
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.AppDataSource = void 0;
 require("reflect-metadata");
 const typeorm_1 = require("typeorm");
 const dotenv = __importStar(require("dotenv"));
@@ -38,7 +37,7 @@ const DB_PORT = parseInt(process.env.DB_PORT || '5432', 10);
 const DB_USERNAME = process.env.DB_USERNAME || 'postgres';
 const DB_PASSWORD = process.env.DB_PASSWORD || 'postgres';
 const DB_NAME = process.env.DB_NAME || 'mobilisation_db';
-exports.AppDataSource = new typeorm_1.DataSource({
+const AppDataSource = new typeorm_1.DataSource({
     type: 'postgres',
     host: DB_HOST,
     port: DB_PORT,
@@ -50,5 +49,5 @@ exports.AppDataSource = new typeorm_1.DataSource({
     synchronize: false,
     logging: false
 });
-exports.default = exports.AppDataSource;
+exports.default = AppDataSource;
 //# sourceMappingURL=data-source.js.map
