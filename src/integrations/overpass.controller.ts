@@ -6,9 +6,11 @@ import { BboxQueryDto } from './dto/bbox-query.dto';
 import { StoredQueryDto } from './dto/stored-query.dto';
 import AppDataSource from '../data-source';
 import { Marketplace } from './marketplace.entity';
+import { PlaceService } from './place.service';
 
 const router = express.Router();
 const service = new OverpassService();
+const placeService = new PlaceService();
 
 // GET /markets?south=...&west=...&north=...&east=...
 router.get('/markets', async (req: Request, res: Response) => {
@@ -116,4 +118,49 @@ router.get('/markets/normalized', async (req: Request, res: Response) => {
   }
 });
 
+// GET /markets/by-city?ville=...  -> composite: places/bbox then markets then normalized
+router.get('/markets/by-city', async (req: Request, res: Response) => {
+  const ville = (req.query.ville as string) || (req.query.city as string);
+  if (!ville) return res.status(400).json({ message: 'ville query parameter is required' });
+
+  try {
+    // 1) get bbox for the city
+    const bbox = await placeService.getCityBBox(ville);
+
+    // 2) fetch markets and store them, passing provided city
+    const fetched = await service.fetchAndStoreMarkets({ south: bbox.south, west: bbox.west, north: bbox.north, east: bbox.east }, ville);
+
+    // 3) normalize results (use same normalization as /markets/normalized)
+    const delta = 0.0015;
+    const normalized = fetched.map((it) => {
+      const lat = it.latitude ?? 0;
+      const lon = it.longitude ?? 0;
+      const coords = [
+        [lon - delta, lat - delta],
+        [lon - delta, lat + delta],
+        [lon + delta, lat + delta],
+        [lon + delta, lat - delta],
+        [lon - delta, lat - delta],
+      ];
+
+      return {
+        nom: it.name || it.osm_id,
+        ville: it.city || ville,
+        delimitation: {
+          type: 'Polygon',
+          coordinates: [coords],
+        },
+      };
+    });
+
+    res.json(normalized);
+  } catch (err: any) {
+    console.error('markets/by-city error', err);
+    if (err?.message === 'not_found') return res.status(404).json({ message: 'City not found' });
+    if (err?.message === 'timeout') return res.status(504).json({ message: 'Provider timeout' });
+    return res.status(502).json({ message: 'Failed to fetch markets for city', error: String(err) });
+  }
+});
+
 export default router;
+

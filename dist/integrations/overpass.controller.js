@@ -11,8 +11,10 @@ const bbox_query_dto_1 = require("./dto/bbox-query.dto");
 const stored_query_dto_1 = require("./dto/stored-query.dto");
 const data_source_1 = __importDefault(require("../data-source"));
 const marketplace_entity_1 = require("./marketplace.entity");
+const place_service_1 = require("./place.service");
 const router = express_1.default.Router();
 const service = new overpass_service_1.OverpassService();
+const placeService = new place_service_1.PlaceService();
 router.get('/markets', async (req, res) => {
     const dto = (0, class_transformer_1.plainToInstance)(bbox_query_dto_1.BboxQueryDto, req.query);
     const errors = await (0, class_validator_1.validate)(dto, { whitelist: true, forbidNonWhitelisted: false });
@@ -107,6 +109,45 @@ router.get('/markets/normalized', async (req, res) => {
     catch (err) {
         console.error('Error building normalized marketplaces', err);
         res.status(500).json({ message: 'Failed to build normalized marketplaces', error: String(err) });
+    }
+});
+router.get('/markets/by-city', async (req, res) => {
+    const ville = req.query.ville || req.query.city;
+    if (!ville)
+        return res.status(400).json({ message: 'ville query parameter is required' });
+    try {
+        const bbox = await placeService.getCityBBox(ville);
+        const fetched = await service.fetchAndStoreMarkets({ south: bbox.south, west: bbox.west, north: bbox.north, east: bbox.east }, ville);
+        const delta = 0.0015;
+        const normalized = fetched.map((it) => {
+            var _a, _b;
+            const lat = (_a = it.latitude) !== null && _a !== void 0 ? _a : 0;
+            const lon = (_b = it.longitude) !== null && _b !== void 0 ? _b : 0;
+            const coords = [
+                [lon - delta, lat - delta],
+                [lon - delta, lat + delta],
+                [lon + delta, lat + delta],
+                [lon + delta, lat - delta],
+                [lon - delta, lat - delta],
+            ];
+            return {
+                nom: it.name || it.osm_id,
+                ville: it.city || ville,
+                delimitation: {
+                    type: 'Polygon',
+                    coordinates: [coords],
+                },
+            };
+        });
+        res.json(normalized);
+    }
+    catch (err) {
+        console.error('markets/by-city error', err);
+        if ((err === null || err === void 0 ? void 0 : err.message) === 'not_found')
+            return res.status(404).json({ message: 'City not found' });
+        if ((err === null || err === void 0 ? void 0 : err.message) === 'timeout')
+            return res.status(504).json({ message: 'Provider timeout' });
+        return res.status(502).json({ message: 'Failed to fetch markets for city', error: String(err) });
     }
 });
 exports.default = router;

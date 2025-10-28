@@ -71,6 +71,21 @@ const swaggerSpec = {
                 },
             },
         },
+        '/serviceprediction/markets/by-city': {
+            get: {
+                tags: ['integrations'],
+                summary: 'Recuperer et normaliser les marketplaces pour une ville (places+bbox -> markets)',
+                parameters: [
+                    { name: 'ville', in: 'query', required: true, schema: { type: 'string' }, description: 'Nom de la ville (ex: Mahajanga)' },
+                ],
+                responses: {
+                    '200': { description: 'Liste normalisee des marketplaces', content: { 'application/json': { schema: { type: 'array', items: { $ref: '#/components/schemas/MarketplaceNormalized' } } } } },
+                    '400': { description: 'Parametres invalides' },
+                    '404': { description: 'Ville non trouvee' },
+                    '502': { description: 'Erreur lors de la recuperation des marches' },
+                },
+            },
+        },
         '/serviceprediction/markets/normalized': {
             get: {
                 tags: ['integrations'],
