@@ -41,6 +41,7 @@ const transaction_controller_1 = __importDefault(require("./integrations/transac
 const optimizer_controller_1 = __importDefault(require("./optimization/optimizer.controller"));
 const ai_controller_1 = __importDefault(require("./ai/ai.controller"));
 const overpass_controller_1 = __importDefault(require("./integrations/overpass.controller"));
+const place_controller_1 = __importDefault(require("./integrations/place.controller"));
 const error_handler_1 = __importDefault(require("./middleware/error-handler"));
 dotenv.config();
 async function bootstrap() {
@@ -58,6 +59,7 @@ async function bootstrap() {
     app.use('/serviceprediction', ai_controller_1.default);
     app.use('/serviceprediction', optimizer_controller_1.default);
     app.use('/serviceprediction', overpass_controller_1.default);
+    app.use('/serviceprediction', place_controller_1.default);
     app.use(error_handler_1.default);
     const port = parseInt(process.env.APP_PORT || '3000', 10);
     app.listen(port, () => {

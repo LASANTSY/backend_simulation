@@ -13,6 +13,7 @@ import transactionRouter from './integrations/transaction.controller';
 import optimizerRouter from './optimization/optimizer.controller';
 import aiRouter from './ai/ai.controller';
 import overpassRouter from './integrations/overpass.controller';
+import placeRouter from './integrations/place.controller';
 // authMiddleware removed per request - application is public
 import errorHandler from './middleware/error-handler';
 
@@ -42,6 +43,7 @@ async function bootstrap() {
   app.use('/serviceprediction', aiRouter);
   app.use('/serviceprediction', optimizerRouter);
   app.use('/serviceprediction', overpassRouter);
+  app.use('/serviceprediction', placeRouter);
 
   // Error handler
   app.use(errorHandler as any);

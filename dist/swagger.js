@@ -56,6 +56,41 @@ const swaggerSpec = {
                 },
             },
         },
+        '/serviceprediction/places/bbox': {
+            get: {
+                tags: ['integrations'],
+                summary: "Recuperer le bounding box d'une ville via OSM (Nominatim)",
+                parameters: [
+                    { name: 'city', in: 'query', required: true, schema: { type: 'string' }, description: 'Nom de la ville (ex: Antananarivo)' },
+                ],
+                responses: {
+                    '200': { description: 'Bounding box de la ville', content: { 'application/json': { schema: { $ref: '#/components/schemas/CityBBox' } } } },
+                    '400': { description: 'Parametres invalides' },
+                    '404': { description: 'Ville non trouvée' },
+                    '502': { description: 'Erreur fournisseur externe' },
+                },
+            },
+        },
+        '/serviceprediction/markets/normalized': {
+            get: {
+                tags: ['integrations'],
+                summary: "Afficher les marketplaces normalisees (nom, ville, delimitation GeoJSON)",
+                parameters: [
+                    { name: 'city', in: 'query', required: false, schema: { type: 'string' } },
+                    { name: 'since', in: 'query', required: false, schema: { type: 'string', format: 'date-time' } },
+                    { name: 'limit', in: 'query', required: false, schema: { type: 'integer' } },
+                    { name: 'south', in: 'query', required: false, schema: { type: 'number' } },
+                    { name: 'west', in: 'query', required: false, schema: { type: 'number' } },
+                    { name: 'north', in: 'query', required: false, schema: { type: 'number' } },
+                    { name: 'east', in: 'query', required: false, schema: { type: 'number' } },
+                ],
+                responses: {
+                    '200': { description: 'Liste normalisee', content: { 'application/json': { schema: { type: 'array', items: { $ref: '#/components/schemas/MarketplaceNormalized' } } } } },
+                    '400': { description: 'Parametres invalides' },
+                    '500': { description: 'Erreur serveur' },
+                },
+            },
+        },
         '/serviceprediction/predictions/run': {
             post: {
                 tags: ['prediction'],
@@ -165,6 +200,30 @@ const swaggerSpec = {
                     tags: { type: 'object' },
                     city: { type: 'string' },
                     fetched_at: { type: 'string', format: 'date-time' },
+                },
+            },
+            CityBBox: {
+                type: 'object',
+                properties: {
+                    south: { type: 'number' },
+                    west: { type: 'number' },
+                    north: { type: 'number' },
+                    east: { type: 'number' },
+                    display_name: { type: 'string' },
+                },
+            },
+            MarketplaceNormalized: {
+                type: 'object',
+                properties: {
+                    nom: { type: 'string' },
+                    ville: { type: 'string' },
+                    delimitation: {
+                        type: 'object',
+                        properties: {
+                            type: { type: 'string', example: 'Polygon' },
+                            coordinates: { type: 'array' },
+                        },
+                    },
                 },
             },
         },
