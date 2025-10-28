@@ -16,6 +16,24 @@ const swaggerSpec = {
     { name: 'optimization', description: 'Optimisation du timing' },
   ],
   paths: {
+  '/serviceprediction/markets': {
+      get: {
+        tags: ['integrations'],
+        summary: "Lister les marketplaces via Overpass (OpenStreetMap)",
+        description: 'Recupere les objets amenity=marketplace dans la bounding box fournie et les enregistre localement.',
+        parameters: [
+          { name: 'south', in: 'query', required: true, schema: { type: 'number' }, description: 'Latitude sud (min) - format decimal' },
+          { name: 'west', in: 'query', required: true, schema: { type: 'number' }, description: 'Longitude ouest (min) - format decimal' },
+          { name: 'north', in: 'query', required: true, schema: { type: 'number' }, description: 'Latitude nord (max) - format decimal' },
+          { name: 'east', in: 'query', required: true, schema: { type: 'number' }, description: 'Longitude est (max) - format decimal' },
+        ],
+        responses: {
+          '200': { description: 'Liste des marketplaces', content: { 'application/json': { schema: { type: 'array', items: { $ref: '#/components/schemas/Marketplace' } } } } },
+          '400': { description: 'Parametres de requete invalides' },
+          '502': { description: 'Erreur lors de l appel a l API Overpass' },
+        },
+      },
+    },
   '/serviceprediction/predictions/run': {
       post: {
         tags: ['prediction'],
@@ -130,6 +148,19 @@ const swaggerSpec = {
       Transaction: { type: 'object', properties: { transactionId: { type: 'string' }, amount: { type: 'number' }, date: { type: 'string', format: 'date' }, status: { type: 'string' } } },
 
       TransactionProviderResponse: { type: 'object', properties: { message: { type: 'string' }, status: { type: 'number' }, data: { type: 'array', items: { $ref: '#/components/schemas/Transaction' } } } },
+      Marketplace: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', format: 'uuid' },
+          osm_id: { type: 'string' },
+          name: { type: 'string' },
+          latitude: { type: 'number' },
+          longitude: { type: 'number' },
+          tags: { type: 'object' },
+          city: { type: 'string' },
+          fetched_at: { type: 'string', format: 'date-time' },
+        },
+      },
     },
   },
 };

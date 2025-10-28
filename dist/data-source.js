@@ -31,6 +31,7 @@ const Revenue_1 = require("./entities/Revenue");
 const Prediction_1 = require("./entities/Prediction");
 const Simulation_1 = require("./entities/Simulation");
 const AnalysisResult_1 = require("./entities/AnalysisResult");
+const marketplace_entity_1 = require("./integrations/marketplace.entity");
 dotenv.config();
 const DB_HOST = process.env.DB_HOST || 'localhost';
 const DB_PORT = parseInt(process.env.DB_PORT || '5432', 10);
@@ -44,7 +45,7 @@ exports.AppDataSource = new typeorm_1.DataSource({
     username: DB_USERNAME,
     password: DB_PASSWORD,
     database: DB_NAME,
-    entities: [Revenue_1.Revenue, Prediction_1.Prediction, Simulation_1.Simulation, AnalysisResult_1.AnalysisResult],
+    entities: [Revenue_1.Revenue, Prediction_1.Prediction, Simulation_1.Simulation, AnalysisResult_1.AnalysisResult, marketplace_entity_1.Marketplace],
     migrations: [__dirname + '/migrations/*.{ts,js}'],
     synchronize: false,
     logging: false
