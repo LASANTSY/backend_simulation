@@ -1,0 +1,138 @@
+{
+  "simulation_id": "03f4eba1-a278-4a96-83fa-ef7814267bdf",
+  "created_at": "2025-11-11T10:28:25.399Z",
+  "parameters": {
+    "revenue_id": "e8d1e76a-beff-4d61-84eb-cf46039fbbbf",
+    "original_amount": 1500.5,
+    "new_amount": 2000,
+    "frequency": "monthly",
+    "duration_months": 12,
+    "start_date": "2025-06-01",
+    "devise": "MGA",
+    "season": "summer"
+  },
+  "weather": {
+    "city": "Antananarivo",
+    "temperature": 25.97,
+    "humidity": 44,
+    "description": "scattered clouds"
+  },
+  "economic": {
+    "population_2024": 31964956,
+    "gdp_2024_usd": 17420814800.7045
+  },
+  "analysis_results": {
+    "analysis_id": "67bb7d16-6191-471f-9edb-6c5a01d62387",
+    "baseline_total": 6060000,
+    "simulated_total": 6065994,
+    "delta_total": 5994,
+    "percent_change": 0.09891089108910892,
+    "months": [
+      "2025-06-01",
+      "2025-07-01",
+      "2025-08-01",
+      "2025-09-01",
+      "2025-10-01",
+      "2025-11-01",
+      "2025-12-01",
+      "2026-01-01",
+      "2026-02-01",
+      "2026-03-01",
+      "2026-04-01",
+      "2026-05-01"
+    ],
+    "baseline_series": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      1010000,
+      1010000,
+      1010000,
+      1010000,
+      1010000,
+      1010000,
+      0
+    ],
+    "simulated_series": [
+      499.5,
+      499.5,
+      499.5,
+      499.5,
+      499.5,
+      1010499.5,
+      1010499.5,
+      1010499.5,
+      1010499.5,
+      1010499.5,
+      1010499.5,
+      499.5
+    ],
+    "ai_analysis": {
+      "model": "gemini-2.5-flash",
+      "confidence": 0.8,
+      "prediction_summary": "Sur une période de 12 mois, s'étendant de juin 2025 à mai 2026, la simulation projette un total de revenus de 6 065 994 MGA. Cela représente une augmentation cumulative de 5 994 MGA, soit environ 0,099%, par rapport au total de référence (baseline) de 6 060 000 MGA.",
+      "key_values": {
+        "devise": "MGA",
+        "horizon": "12 mois (juin 2025 - mai 2026)",
+        "ajout_mensuel_fixe": 499.5,
+        "total_revenu_simule": 6065994,
+        "augmentation_absolue": 5994,
+        "total_revenu_baseline": 6060000,
+        "augmentation_pourcentage": 0.099
+      },
+      "interpretation": "La simulation propose un ajout modeste et constant de 499,5 MGA par mois à un flux de revenus existant à Madagascar. Cette valeur incrémentale fixe est dérivée de la différence entre le 'newAmount' (2000 MGA) et l''originalAmount' (1500,5 MGA), appliquée uniformément à la série de référence. Bien que la variation en pourcentage par rapport au total de référence semble minime (0,099%), la nature constante de cet incrément mensuel offre une prévisibilité, bien qu'un très léger, coup de pouce financier. Dans le contexte de l'économie malgache, où le PIB par habitant moyen est d'environ 545 USD par an, cette addition mensuelle (équivalente à environ 0,12 USD/mois) représente un montant négligeable qui n'aura probablement pas d'impact significatif sur la performance financière globale.",
+      "risks": [
+        {
+          "factor": "Inflation et Dévaluation du MGA",
+          "probability": "Élevée"
+        },
+        {
+          "factor": "Instabilité Économique et Politique",
+          "probability": "Moyenne à Élevée"
+        },
+        {
+          "factor": "Vulnérabilité Climatique",
+          "probability": "Moyenne"
+        },
+        {
+          "factor": "Impact Insignifiant",
+          "probability": "Élevée"
+        }
+      ],
+      "opportunities": [
+        {
+          "description": "L'ajout mensuel constant, bien que minime, offre un micro-flux prévisible qui pourrait être alloué d...",
+          "impact": "Très Faible, principalement psychologique ou symbolique"
+        },
+        {
+          "description": "La capacité du système à appliquer un incrément fixe démontre un mécanisme fondamental qui pourrait ...",
+          "impact": "Élevé conditionnel, si un ajustement stratégique du 'newAmount' est effectué"
+        },
+        {
+          "description": "La population jeune et en croissance rapide de Madagascar présente une opportunité à long terme pour...",
+          "impact": "Élevé à long terme, indirect, pour le contexte économique global"
+        }
+      ],
+      "recommendations": [
+        {
+          "action": "Réévaluer la Stratégie du 'newAmount' pour un Impact Matériel",
+          "priority": "Élevée"
+        },
+        {
+          "action": "Micro-Allocation avec Suivi Vigilant",
+          "priority": "Moyenne"
+        },
+        {
+          "action": "Intégrer les Facteurs Macroéconomiques Dynamiques dans les Futurs Modèles",
+          "priority": "Élevée (pour la planification stratégique)"
+        },
+        {
+          "action": "Diversifier et Accroître les Sources de Revenus Principales",
+          "priority": "Élevée"
+        }
+      ]
+    }
+  }
+}

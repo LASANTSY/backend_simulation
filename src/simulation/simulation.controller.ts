@@ -3,6 +3,7 @@ import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { CreateSimulationDto } from './dto/create-simulation.dto';
 import simulationService from './simulation.service';
+import buildOptimizedResponse from './response.mapper';
 import { PlaceService } from '../integrations/place.service';
 import contextService from '../context/context.service';
 
@@ -77,13 +78,19 @@ router.post('/simulations', async (req: Request, res: Response) => {
       demographicContext,
       seasonContext,
     });
-    // If debug info was attached during context fetch, include it in the response when running in non-production
-    const debugInfo = (req as any)._contextFetchInfo;
-    if (debugInfo && (process.env.NODE_ENV !== 'production')) {
-      // non-breaking: attach under _debug key
-      (result as any)._debug = { contextFetch: debugInfo };
+    // Decide response mode: default = optimized; raw available via ?raw=true
+    const wantRaw = String(req.query.raw || '').toLowerCase() === 'true' || String(req.headers['x-response-mode'] || '').toLowerCase() === 'raw';
+    if (wantRaw) {
+      // If debug info was attached during context fetch, include it in the response when running in non-production
+      const debugInfo = (req as any)._contextFetchInfo;
+      if (debugInfo && (process.env.NODE_ENV !== 'production')) {
+        (result as any)._debug = { contextFetch: debugInfo };
+      }
+      return res.status(201).json(result);
     }
-    res.status(201).json(result);
+
+    const optimized = buildOptimizedResponse(result as any);
+    return res.status(201).json(optimized);
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Simulation failed', error: String(err) });

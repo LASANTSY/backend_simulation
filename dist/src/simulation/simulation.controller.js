@@ -31,6 +31,7 @@ const class_transformer_1 = require("class-transformer");
 const class_validator_1 = require("class-validator");
 const create_simulation_dto_1 = require("./dto/create-simulation.dto");
 const simulation_service_1 = __importDefault(require("./simulation.service"));
+const response_mapper_1 = __importDefault(require("./response.mapper"));
 const place_service_1 = require("../integrations/place.service");
 const context_service_1 = __importDefault(require("../context/context.service"));
 const router = express_1.default.Router();
@@ -93,11 +94,16 @@ router.post('/simulations', async (req, res) => {
             demographicContext,
             seasonContext,
         });
-        const debugInfo = req._contextFetchInfo;
-        if (debugInfo && (process.env.NODE_ENV !== 'production')) {
-            result._debug = { contextFetch: debugInfo };
+        const wantRaw = String(req.query.raw || '').toLowerCase() === 'true' || String(req.headers['x-response-mode'] || '').toLowerCase() === 'raw';
+        if (wantRaw) {
+            const debugInfo = req._contextFetchInfo;
+            if (debugInfo && (process.env.NODE_ENV !== 'production')) {
+                result._debug = { contextFetch: debugInfo };
+            }
+            return res.status(201).json(result);
         }
-        res.status(201).json(result);
+        const optimized = (0, response_mapper_1.default)(result);
+        return res.status(201).json(optimized);
     }
     catch (err) {
         console.error(err);
