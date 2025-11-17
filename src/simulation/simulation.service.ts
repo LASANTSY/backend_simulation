@@ -126,8 +126,11 @@ export class SimulationService {
 
     const savedAnalysis = await this.analysisRepo.save(analysis as any);
 
-    // Build extraContext for AI enrichment
+    // Build extraContext for AI enrichment - include all available contexts
+    const seasonFromParams = (savedSim.parameters as any)?.seasonContext?.season;
     const season = (() => {
+      // Priority: explicit seasonContext > inferred from startDate
+      if (seasonFromParams) return seasonFromParams;
       const d = new Date(opts.startDate || new Date().toISOString().slice(0, 10));
       const month = d.getMonth() + 1;
       return month >= 3 && month <= 5 ? 'spring' : month >= 6 && month <= 8 ? 'summer' : month >= 9 && month <= 11 ? 'autumn' : 'winter';
@@ -140,10 +143,17 @@ export class SimulationService {
     };
 
     const extraContext = {
-      time: { period: opts.durationMonths, season, trend: timeTrend },
+      time: { 
+        period: opts.durationMonths, 
+        season, 
+        trend: timeTrend,
+        startDate: opts.startDate || new Date().toISOString().slice(0, 10)
+      },
       weather: opts.weatherContext || savedSim.weatherContext || null,
       economy: opts.economicContext || savedSim.economicContext || null,
       demography: opts.demographicContext || savedSim.demographicContext || null,
+      // Include seasonContext explicitly if provided
+      seasonContext: opts.seasonContext || (savedSim.parameters as any)?.seasonContext || null,
       months,
       baselineSeries,
       simulatedSeries,

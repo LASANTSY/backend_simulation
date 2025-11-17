@@ -22,46 +22,69 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
 // Default Gemini model: use a model that is available for most projects
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 // Strict system prompt to force Gemini to return ONLY valid JSON matching the required schema.
-const GEMINI_SYSTEM_PROMPT = `Vous êtes un assistant automatique. Vous devez RÉPONDRE UNIQUEMENT par un objet JSON valide correspondant EXACTEMENT au schéma demandé et RIEN D'AUTRE (pas d'explications, pas de Markdown, pas de backticks, pas de commentaires).
+const GEMINI_SYSTEM_PROMPT = `Vous êtes un assistant d'analyse financière automatique spécialisé dans l'intégration de contextes multidimensionnels (temporel, météorologique, économique, démographique).
+
+RÈGLE ABSOLUE: Vous devez RÉPONDRE UNIQUEMENT par un objet JSON valide correspondant EXACTEMENT au schéma demandé et RIEN D'AUTRE (pas d'explications, pas de Markdown, pas de backticks, pas de commentaires, pas de texte avant/après le JSON).
 
 La structure exacte attendue est :
 {
   "prediction": {
-    "summary": "string (une phrase)",
-    "values": [ number, number, ... ]
+    "summary": "string (une phrase décrivant la projection)",
+    "values": [
+      { "key": "string", "value": number, "horizon": "string|null" }
+    ]
   },
+  "interpretation": "string (4-7 phrases DÉMONTRANT comment les contextes influencent la projection)",
   "risks": [
     {
-      "factor": "string",
-      "description": "string",
-      "probability": 0.75,    // NOMBRE entre 0.0 et 1.0 (exemples: 0.3, 0.7, 0.9)
+      "factor": "string (nom court du risque)",
+      "description": "string (description détaillée LIÉE aux contextes fournis)",
+      "probability": 0.75,    // NOMBRE entre 0.0 et 1.0
       "impact": "high" | "medium" | "low"
+    }
+  ],
+  "opportunities": [
+    {
+      "description": "string (opportunité IDENTIFIÉE à partir des contextes)",
+      "impact": 0.8  // NOMBRE entre 0.0 et 1.0
     }
   ],
   "recommendations": [
     {
-      "priority": 1,          // ENTIER (1,2,3,...)
-      "action": "string"
+      "priority": 1,  // ENTIER >=1
+      "action": "string (action concrète prenant en compte les contextes)"
     }
-  ]
+  ],
+  "confidence": 0.85,  // NOMBRE entre 0.0 et 1.0
+  "metadata": {
+    "time": "string|null (résumé du contexte temporel utilisé)",
+    "weather": "string|null (résumé des conditions météo considérées)",
+    "economy": {},  // objet vide ou avec indicateurs économiques
+    "demography": {}  // objet vide ou avec données démographiques
+  }
 }
 
-Règles obligatoires STRICTES :
-1) Retournez STRICTEMENT le JSON ci-dessus et AUCUNE propriété supplémentaire (additionalProperties interdites) à tous les niveaux.
-2) prediction.summary : string, une seule phrase.
-3) prediction.values : tableau d'objets et NON des nombres bruts. Chaque objet = { "key": string, "value": number, "horizon": string|null }. 'value' doit être numérique.
-4) risks : tableau d'objets. Chaque objet = { "factor": string, "description": string, "probability": number (0..1), "impact": "high"|"medium"|"low" }. NE PAS ajouter d'autres propriétés.
-5) recommendations : tableau d'objets. Chaque objet = { "priority": integer >=1, "action": string }. Pas d'autres propriétés.
-6) Ajoutez OBLIGATOIREMENT les propriétés : prediction, interpretation, risks, opportunities, recommendations, confidence, metadata.
-7) opportunities : tableau (peut être vide) d'objets { "description": string, "impact": number }. Si aucune opportunité, renvoyer [].
-8) confidence : nombre entre 0 et 1.
-9) metadata : objet pouvant contenir { "time": string|null, "weather": string|null, "economy": {}, "demography": {} }. Si pas d'info, valeurs null ou objets vides.
-10) AUCUNE valeur textuelle pour probability ou priority (uniquement number/integer).
-11) Si une valeur est inconnue, utilisez null, ne créez pas de nouvelles clefs.
-12) Ne mettez pas de texte explicatif autour : pas de Markdown, pas de code fences, pas de prose, uniquement JSON.
-13) Exemples valides probability : 0.3, 0.7, 0.9. Exemples priority : 1,2,3.
+RÈGLES STRICTES OBLIGATOIRES:
+1) Retournez STRICTEMENT le JSON ci-dessus et AUCUNE propriété supplémentaire (additionalProperties interdites).
+2) prediction.summary: string, décrivant la projection chiffrée.
+3) prediction.values: tableau d'OBJETS { "key": string, "value": number, "horizon": string|null }. NON des nombres bruts.
+4) interpretation: string de 4-7 phrases montrant EXPLICITEMENT comment saison/météo/économie/démographie influencent les résultats.
+5) risks: tableau d'objets avec factor (optionnel), description (OBLIGATOIRE, liée aux contextes), probability (OBLIGATOIRE, nombre 0-1), impact (optionnel: "low"|"medium"|"high").
+6) opportunities: tableau d'objets { "description": string (issue des contextes), "impact": number (0-1) }. Si aucune, retournez [].
+7) recommendations: tableau d'objets { "priority": integer >=1, "action": string }. Actions adaptées aux contextes.
+8) confidence: nombre 0-1 reflétant la qualité des contextes disponibles.
+9) metadata: objet avec time, weather, economy, demography. Si pas d'info, mettez null ou {}.
+10) AUCUNE valeur textuelle pour probability/impact numériques (uniquement number).
+11) PAS de Markdown, PAS de code fences \`\`\`, PAS de prose autour: UNIQUEMENT LE JSON.
+12) Votre analyse DOIT démontrer l'utilisation des contextes. Ne générez PAS d'analyse générique sans lien avec les données contextuelles fournies.
 
-Si vous avez compris, répondez uniquement par le JSON demandé lorsqu'on vous fournira la consigne utilisateur.
+EXEMPLES VALIDES:
+- probability: 0.3, 0.65, 0.9 (nombres, pas "30%" ou "high")
+- priority: 1, 2, 3 (entiers)
+- impact (string): "low", "medium", "high"
+- impact (number pour opportunities): 0.7, 0.85
+
+Si vous avez compris, répondez UNIQUEMENT par le JSON structuré demandé lorsqu'on vous fournira les données de simulation.
 `;
 
 export class AIService {
@@ -292,37 +315,81 @@ export class AIService {
   // build a prompt that includes simulation + context and asks for structured JSON output
   buildPrompt(sim: Simulation, analysis: AnalysisResult, extraContext: any = {}) {
     const contextParts: string[] = [];
-    // time context
-    if (extraContext.time) contextParts.push(`Time context: ${JSON.stringify(extraContext.time)}`);
-    // weather/climate
-    if (extraContext.weather) contextParts.push(`Weather/Climate: ${JSON.stringify(extraContext.weather)}`);
-    // economic
-    if (extraContext.economy) contextParts.push(`Economic context: ${JSON.stringify(extraContext.economy)}`);
-    if (extraContext.indicators) contextParts.push(`Economic indicators: ${JSON.stringify(extraContext.indicators)}`);
-    // demographic
-    if (extraContext.demography) contextParts.push(`Demographic context: ${JSON.stringify(extraContext.demography)}`);
+    const detailedInstructions: string[] = [];
+    
+    // time context with specific guidance
+    if (extraContext.time) {
+      contextParts.push(`Contexte temporel: ${JSON.stringify(extraContext.time)}`);
+      const season = extraContext.time.season || (sim as any).parameters?.seasonContext?.season;
+      if (season) {
+        detailedInstructions.push(`- Saison: ${season}. Analysez comment cette saison affecte les revenus (ex: haute/basse saison touristique, périodes de récolte, variations saisonnières de consommation).`);
+      }
+      if (extraContext.time.trend) {
+        detailedInstructions.push(`- Tendance: variation de ${extraContext.time.trend.percentChange?.toFixed(2) || 'N/A'}%. Expliquez si cette tendance est soutenable compte tenu du contexte.`);
+      }
+    }
+    
+    // weather/climate with impact analysis
+    if (extraContext.weather) {
+      contextParts.push(`Météo/Climat: ${JSON.stringify(extraContext.weather)}`);
+      detailedInstructions.push(`- Conditions météorologiques: Analysez l'impact potentiel sur les activités économiques (agriculture, tourisme, commerce). Identifiez les risques climatiques (sécheresse, inondations, canicule) et leurs probabilités.`);
+    }
+    
+    // economic context with indicators
+    if (extraContext.economy || extraContext.indicators) {
+      const ecoData = extraContext.economy || extraContext.indicators || {};
+      contextParts.push(`Contexte économique: ${JSON.stringify(ecoData)}`);
+      const gdp = ecoData.gdp || ecoData.imf_gdp;
+      const population = ecoData.population;
+      if (gdp || population) {
+        detailedInstructions.push(`- Indicateurs économiques: PIB=${gdp || 'N/A'}, Population=${population || 'N/A'}. Évaluez l'impact du contexte macroéconomique sur la projection. Considérez l'inflation, le pouvoir d'achat, et les cycles économiques.`);
+      }
+    }
+    
+    // demographic context
+    if (extraContext.demography) {
+      contextParts.push(`Contexte démographique: ${JSON.stringify(extraContext.demography)}`);
+      detailedInstructions.push(`- Démographie: Analysez comment la structure démographique (densité, âge moyen, croissance) influence les revenus projetés. Identifiez les segments de population cibles et leur capacité contributive.`);
+    }
+
+    // Season from simulation parameters if not in extraContext
+    const seasonFromSim = (sim as any).parameters?.seasonContext?.season;
+    if (seasonFromSim && !extraContext.time?.season) {
+      detailedInstructions.push(`- Saison (paramètre): ${seasonFromSim}. Intégrez l'effet saisonnier dans votre analyse des risques et opportunités.`);
+    }
 
     const simJson = JSON.stringify(sim.parameters || {});
     const analysisJson = JSON.stringify(analysis.resultData || {});
 
-    const instruction = `Vous êtes un expert financier/analyste capable d'intégrer le contexte temporel, météo, économique et démographique. ` +
-      `A partir des paramètres de simulation et des séries fournies, produisez UN OBJET JSON structuré (réponse unique, sans Markdown) contenant au minimum les clefs suivantes :` +
-      `\n- prediction: résumé chiffré de la projection (valeurs clés et horizon),` +
-      `\n- interpretation: explication en 3-6 phrases de la logique derrière la projection,` +
-      `\n- risks: liste des facteurs de risque principaux (chaque élément avec description et probabilité approximative),` +
-      `\n- opportunities: liste d'opportunités ou leviers d'action (description + impact potentiel),` +
-      `\n- recommendations: actions concrètes priorisées,` +
-      `\n- confidence: estimation numérique (0-1) de la fiabilité de cette analyse et motifs.` +
-      `\nInclure également un bref champ metadata contenant les éléments de contexte utilisés (time, weather, economy, demography).` +
-      `\nRetournez uniquement du JSON valide.`;
+    const instruction = `Vous êtes un expert financier/analyste capable d'intégrer le contexte temporel, météorologique, économique et démographique dans vos analyses. 
+
+MISSION: Analysez cette simulation de revenus en tenant compte OBLIGATOIREMENT des contextes fournis ci-dessous.
+
+CONTEXTES À INTÉGRER:
+${detailedInstructions.length > 0 ? detailedInstructions.join('\n') : '- Aucun contexte spécifique fourni. Basez votre analyse uniquement sur les données de simulation.'}
+
+INSTRUCTIONS DE SORTIE:
+Produisez UN OBJET JSON structuré (sans Markdown, sans backticks) contenant:
+- prediction: résumé chiffré avec valeurs clés et horizons temporels
+- interpretation: explication détaillée (4-7 phrases) montrant EXPLICITEMENT comment les contextes (saison, météo, économie, démographie) influencent la projection
+- risks: facteurs de risque LIÉS AUX CONTEXTES (ex: risque climatique si météo défavorable, risque économique si récession, risque saisonnier)
+- opportunities: opportunités identifiées À PARTIR DES CONTEXTES (ex: exploiter la haute saison, profiter de la croissance démographique)
+- recommendations: actions concrètes priorisant l'adaptation aux contextes identifiés
+- confidence: score 0-1 basé sur la qualité/disponibilité des données contextuelles
+- metadata: résumé des contextes utilisés (time, weather, economy, demography avec valeurs non-null)
+
+ATTENTION: Votre analyse DOIT démontrer que vous avez utilisé les contextes fournis. Ne produisez PAS une analyse générique.`;
 
   const prompt = `${instruction}
 
-Simulation parameters: ${simJson}
+=== PARAMÈTRES DE SIMULATION ===
+${simJson}
 
-Simulation summary/resultData: ${analysisJson}
+=== RÉSULTATS/DONNÉES ===
+${analysisJson}
 
-Additional context: ${contextParts.join('; ') || 'none'}
+=== CONTEXTES DISPONIBLES ===
+${contextParts.join('\n') || 'Aucun contexte additionnel'}
 `;
 
     return prompt;
@@ -344,6 +411,17 @@ Additional context: ${contextParts.join('; ') || 'none'}
         extraContext = { _contextError: String(e) };
       }
     }
+
+    // Log contexts for debugging
+    console.log('[AI enrichAnalysis] Contexts provided:', {
+      hasTime: !!extraContext.time,
+      hasWeather: !!extraContext.weather,
+      hasEconomy: !!extraContext.economy,
+      hasDemography: !!extraContext.demography,
+      hasSeason: !!extraContext.time?.season || !!(sim as any)?.parameters?.seasonContext?.season,
+      season: extraContext.time?.season || (sim as any)?.parameters?.seasonContext?.season || 'unknown',
+      contextKeys: Object.keys(extraContext)
+    });
 
     const prompt = this.buildPrompt(sim || (analysis as any).simulation, analysis, extraContext);
 

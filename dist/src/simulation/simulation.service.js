@@ -18,7 +18,7 @@ class SimulationService {
         this.predictionRepo = data_source_1.default.getRepository(Prediction_1.Prediction);
     }
     async createAndRunSimulation(opts) {
-        var _a, _b, _c, _d, _e, _f;
+        var _a, _b, _c, _d, _e, _f, _g, _h, _j;
         const revenue = await this.revenueRepo.findOneBy({ id: opts.revenueId });
         if (!revenue)
             throw new Error('Revenue not found');
@@ -94,7 +94,10 @@ class SimulationService {
             summary: `${riskLevel} impact: ${deltaTotal.toFixed(2)} (${percentChange ? percentChange.toFixed(2) + '%' : 'N/A'})`,
         });
         const savedAnalysis = await this.analysisRepo.save(analysis);
+        const seasonFromParams = (_h = (_g = savedSim.parameters) === null || _g === void 0 ? void 0 : _g.seasonContext) === null || _h === void 0 ? void 0 : _h.season;
         const season = (() => {
+            if (seasonFromParams)
+                return seasonFromParams;
             const d = new Date(opts.startDate || new Date().toISOString().slice(0, 10));
             const month = d.getMonth() + 1;
             return month >= 3 && month <= 5 ? 'spring' : month >= 6 && month <= 8 ? 'summer' : month >= 9 && month <= 11 ? 'autumn' : 'winter';
@@ -105,10 +108,16 @@ class SimulationService {
             simulatedTotal,
         };
         const extraContext = {
-            time: { period: opts.durationMonths, season, trend: timeTrend },
+            time: {
+                period: opts.durationMonths,
+                season,
+                trend: timeTrend,
+                startDate: opts.startDate || new Date().toISOString().slice(0, 10)
+            },
             weather: opts.weatherContext || savedSim.weatherContext || null,
             economy: opts.economicContext || savedSim.economicContext || null,
             demography: opts.demographicContext || savedSim.demographicContext || null,
+            seasonContext: opts.seasonContext || ((_j = savedSim.parameters) === null || _j === void 0 ? void 0 : _j.seasonContext) || null,
             months,
             baselineSeries,
             simulatedSeries,
