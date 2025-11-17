@@ -5,6 +5,12 @@ import { Revenue } from './entities/Revenue';
 import { Prediction } from './entities/Prediction';
 import { Simulation } from './entities/Simulation';
 import { AnalysisResult } from './entities/AnalysisResult';
+import { LabeledDataset } from './entities/LabeledDataset';
+import { TrainedModel } from './entities/TrainedModel';
+import { BacktestResult } from './entities/BacktestResult';
+import { ProductionPrediction } from './entities/ProductionPrediction';
+import { DriftAlert } from './entities/DriftAlert';
+import { SecretAccess } from './entities/SecretAccess';
 import { Marketplace } from './integrations/marketplace.entity';
 import { WeatherContext } from './entities/WeatherContext';
 import { EconomicIndicator } from './entities/EconomicIndicator';
@@ -25,7 +31,7 @@ const AppDataSource = new DataSource({
   username: DB_USERNAME,
   password: DB_PASSWORD,
   database: DB_NAME,
-  entities: [Revenue, Prediction, Simulation, AnalysisResult, Marketplace, WeatherContext, EconomicIndicator, Demographic],
+  entities: [Revenue, Prediction, Simulation, AnalysisResult, Marketplace, WeatherContext, EconomicIndicator, Demographic, LabeledDataset, TrainedModel, BacktestResult, ProductionPrediction, DriftAlert, SecretAccess],
   migrations: [__dirname + '/migrations/*.{ts,js}'],
   synchronize: false,
   logging: false

@@ -30,6 +30,12 @@ const Revenue_1 = require("./entities/Revenue");
 const Prediction_1 = require("./entities/Prediction");
 const Simulation_1 = require("./entities/Simulation");
 const AnalysisResult_1 = require("./entities/AnalysisResult");
+const LabeledDataset_1 = require("./entities/LabeledDataset");
+const TrainedModel_1 = require("./entities/TrainedModel");
+const BacktestResult_1 = require("./entities/BacktestResult");
+const ProductionPrediction_1 = require("./entities/ProductionPrediction");
+const DriftAlert_1 = require("./entities/DriftAlert");
+const SecretAccess_1 = require("./entities/SecretAccess");
 const marketplace_entity_1 = require("./integrations/marketplace.entity");
 const WeatherContext_1 = require("./entities/WeatherContext");
 const EconomicIndicator_1 = require("./entities/EconomicIndicator");
@@ -47,7 +53,7 @@ const AppDataSource = new typeorm_1.DataSource({
     username: DB_USERNAME,
     password: DB_PASSWORD,
     database: DB_NAME,
-    entities: [Revenue_1.Revenue, Prediction_1.Prediction, Simulation_1.Simulation, AnalysisResult_1.AnalysisResult, marketplace_entity_1.Marketplace, WeatherContext_1.WeatherContext, EconomicIndicator_1.EconomicIndicator, Demographic_1.Demographic],
+    entities: [Revenue_1.Revenue, Prediction_1.Prediction, Simulation_1.Simulation, AnalysisResult_1.AnalysisResult, marketplace_entity_1.Marketplace, WeatherContext_1.WeatherContext, EconomicIndicator_1.EconomicIndicator, Demographic_1.Demographic, LabeledDataset_1.LabeledDataset, TrainedModel_1.TrainedModel, BacktestResult_1.BacktestResult, ProductionPrediction_1.ProductionPrediction, DriftAlert_1.DriftAlert, SecretAccess_1.SecretAccess],
     migrations: [__dirname + '/migrations/*.{ts,js}'],
     synchronize: false,
     logging: false

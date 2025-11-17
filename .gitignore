@@ -1,2 +1,22 @@
-node_modules
+node_modules/
 .env
+
+# Build output
+dist/
+
+# Data directories
+data/
+
+# DVC
+.dvc/
+.dvcignore
+
+# MLflow
+mlruns/
+
+# Models and training artifacts (managed by DVC)
+models/
+
+# Editor
+.vscode/
+data/labeled/

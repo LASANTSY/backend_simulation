@@ -3,6 +3,12 @@ import { AnalysisResult } from '../entities/AnalysisResult';
 import { Simulation } from '../entities/Simulation';
 import { OpenAI } from 'openai';
 import axios from 'axios';
+import Ajv from 'ajv';
+import addFormats from 'ajv-formats';
+import * as fs from 'fs';
+import * as path from 'path';
+import { llmValidationFailures } from '../monitoring/metrics.service';
+import { extractJSON } from './llm-parser';
 import contextService from '../context/context.service';
 import * as dotenv from 'dotenv';
 
@@ -15,6 +21,48 @@ const OPENAI_FALLBACK_MODEL = process.env.OPENAI_FALLBACK_MODEL || 'gpt-3.5-turb
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
 // Default Gemini model: use a model that is available for most projects
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+// Strict system prompt to force Gemini to return ONLY valid JSON matching the required schema.
+const GEMINI_SYSTEM_PROMPT = `Vous êtes un assistant automatique. Vous devez RÉPONDRE UNIQUEMENT par un objet JSON valide correspondant EXACTEMENT au schéma demandé et RIEN D'AUTRE (pas d'explications, pas de Markdown, pas de backticks, pas de commentaires).
+
+La structure exacte attendue est :
+{
+  "prediction": {
+    "summary": "string (une phrase)",
+    "values": [ number, number, ... ]
+  },
+  "risks": [
+    {
+      "factor": "string",
+      "description": "string",
+      "probability": 0.75,    // NOMBRE entre 0.0 et 1.0 (exemples: 0.3, 0.7, 0.9)
+      "impact": "high" | "medium" | "low"
+    }
+  ],
+  "recommendations": [
+    {
+      "priority": 1,          // ENTIER (1,2,3,...)
+      "action": "string"
+    }
+  ]
+}
+
+Règles obligatoires STRICTES :
+1) Retournez STRICTEMENT le JSON ci-dessus et AUCUNE propriété supplémentaire (additionalProperties interdites) à tous les niveaux.
+2) prediction.summary : string, une seule phrase.
+3) prediction.values : tableau d'objets et NON des nombres bruts. Chaque objet = { "key": string, "value": number, "horizon": string|null }. 'value' doit être numérique.
+4) risks : tableau d'objets. Chaque objet = { "factor": string, "description": string, "probability": number (0..1), "impact": "high"|"medium"|"low" }. NE PAS ajouter d'autres propriétés.
+5) recommendations : tableau d'objets. Chaque objet = { "priority": integer >=1, "action": string }. Pas d'autres propriétés.
+6) Ajoutez OBLIGATOIREMENT les propriétés : prediction, interpretation, risks, opportunities, recommendations, confidence, metadata.
+7) opportunities : tableau (peut être vide) d'objets { "description": string, "impact": number }. Si aucune opportunité, renvoyer [].
+8) confidence : nombre entre 0 et 1.
+9) metadata : objet pouvant contenir { "time": string|null, "weather": string|null, "economy": {}, "demography": {} }. Si pas d'info, valeurs null ou objets vides.
+10) AUCUNE valeur textuelle pour probability ou priority (uniquement number/integer).
+11) Si une valeur est inconnue, utilisez null, ne créez pas de nouvelles clefs.
+12) Ne mettez pas de texte explicatif autour : pas de Markdown, pas de code fences, pas de prose, uniquement JSON.
+13) Exemples valides probability : 0.3, 0.7, 0.9. Exemples priority : 1,2,3.
+
+Si vous avez compris, répondez uniquement par le JSON demandé lorsqu'on vous fournira la consigne utilisateur.
+`;
 
 export class AIService {
   private analysisRepo = AppDataSource.getRepository(AnalysisResult);
@@ -37,6 +85,208 @@ export class AIService {
       // Placeholder for other providers
       this.client = null;
     }
+    // lazy AJV setup will be performed in validate helper if needed
+  }
+
+  // Validate and optionally retry LLM output to match strict JSON schema
+  private static _ajv: any = null;
+  private static _validateFn: any = null;
+  private static _schema: any = null;
+
+  // Safely extract plain text from Gemini responses across SDK/REST variants
+  private static extractGeminiTextFromData(data: any): string | null {
+    try {
+      if (!data) return null;
+      // Primary documented shape
+      const cand = data?.candidates?.[0];
+      const content = cand?.content;
+      const parts = content?.parts;
+      if (Array.isArray(parts) && parts.length > 0) {
+        const texts = parts.map((p: any) => (typeof p?.text === 'string' ? p.text : '')).filter(Boolean);
+        if (texts.length) return texts.join('');
+      }
+      if (typeof content?.text === 'string') return content.text;
+      if (typeof content === 'string') return content;
+      // Older/alternative shapes
+      const output = data?.output;
+      if (typeof output === 'string') return output;
+      if (Array.isArray(output) && output.length) {
+        const o0 = output[0];
+        if (typeof o0 === 'string') return o0;
+        if (o0?.content?.parts && Array.isArray(o0.content.parts)) {
+          const texts = o0.content.parts.map((p: any) => (typeof p?.text === 'string' ? p.text : '')).filter(Boolean);
+          if (texts.length) return texts.join('');
+        }
+        if (typeof o0?.content?.text === 'string') return o0.content.text;
+      }
+      if (typeof data?.text === 'string') return data.text;
+      if (typeof data === 'string') return data;
+      // Log structure when extraction fails
+      console.warn('[extractGeminiTextFromData] No text found in response structure:', JSON.stringify(data).slice(0, 500));
+      return null;
+    } catch (err) {
+      console.error('[extractGeminiTextFromData] Extraction error:', err);
+      return null;
+    }
+  }
+
+  // Remove common Markdown code fences around JSON and trim whitespace
+  private static cleanLLMText(raw: string | null | undefined): string {
+    if (!raw || typeof raw !== 'string') return '';
+    // Remove ```json ... ``` or ``` ... ``` blocks while keeping inner content
+    const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+    if (fenced && fenced[1]) return fenced[1].trim();
+    // Fallback: strip any triple backtick fences
+    return raw.replace(/```[\s\S]*?```/g, (m) => m.replace(/```/g, '')).trim();
+  }
+
+  private static loadSchemaOnce() {
+    if (AIService._validateFn) return;
+    try {
+      const ajv = new Ajv({ allErrors: true, strict: true, coerceTypes: false });
+      addFormats(ajv);
+      const schemaPath = path.join(__dirname, 'schemas', 'analysis-result.schema.json');
+      const schemaText = fs.readFileSync(schemaPath, 'utf8');
+      const schema = JSON.parse(schemaText);
+      AIService._schema = schema;
+      AIService._ajv = ajv;
+      AIService._validateFn = ajv.compile(schema);
+    } catch (e) {
+      // if schema load fails, keep validateFn null and validation will be skipped
+      AIService._validateFn = null;
+      AIService._schema = null;
+    }
+  }
+
+  // Try to validate a raw LLM text. Returns { valid, errors, parsed }.
+  static validateLLMOutputRaw(rawText: string) {
+    AIService.loadSchemaOnce();
+    if (!AIService._validateFn) return { valid: true, errors: null, parsed: null };
+    try {
+      const jsonText = extractJSON(rawText) ?? rawText;
+      const parsed = JSON.parse(jsonText);
+      const valid = AIService._validateFn(parsed);
+      return { valid: Boolean(valid), errors: AIService._validateFn.errors, parsed };
+    } catch (e) {
+      return { valid: false, errors: [{ message: String(e) }], parsed: null };
+    }
+  }
+
+  // Attempt to normalize common shape deviations from the LLM before validation.
+  // - Convert prediction.values: [number, ...] -> [{ key, value, horizon }]
+  // - Ensure required top-level properties exist with minimal placeholders.
+  private _attemptShapeNormalization(raw: string, analysis: AnalysisResult) {
+    try {
+      const jsonText = extractJSON(raw) ?? raw;
+      const data = JSON.parse(jsonText);
+      let mutated = false;
+
+      // Ensure top-level required fields (if missing, add minimal placeholders)
+      const ensure = (k: string, v: any) => { if (!(k in data)) { data[k] = v; mutated = true; } };
+      ensure('interpretation', 'placeholder interpretation');
+      ensure('opportunities', []);
+      ensure('confidence', 0.5);
+      ensure('metadata', { time: null, weather: null, economy: {}, demography: {} });
+
+      // Normalize metadata to ensure proper types
+      if (data.metadata && typeof data.metadata === 'object') {
+        if (data.metadata.time && typeof data.metadata.time === 'string') {
+          // If time is not ISO date-time format, set to null
+          if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(data.metadata.time)) {
+            data.metadata.time = null;
+            mutated = true;
+          }
+        }
+        if (data.metadata.weather !== null && typeof data.metadata.weather !== 'string') {
+          data.metadata.weather = null;
+          mutated = true;
+        }
+      }
+
+      if (data.prediction && Array.isArray(data.prediction.values)) {
+        const arr = data.prediction.values;
+        if (arr.length > 0 && typeof arr[0] !== 'object') {
+          const months: string[] = (analysis?.resultData?.months && Array.isArray(analysis.resultData.months)) ? analysis.resultData.months : [];
+          data.prediction.values = arr.map((v: any, idx: number) => ({
+            key: months[idx] ?? `value_${idx}`,
+            value: typeof v === 'number' ? v : Number(v),
+            horizon: months[idx] ?? null
+          }));
+          mutated = true;
+        }
+      }
+
+      // Normalize risks: ensure required fields, keep allowed properties only
+      if (Array.isArray(data.risks)) {
+        data.risks = data.risks.map((r: any) => {
+          if (r && typeof r === 'object') {
+            const normalized: any = {
+              description: r.description ?? r.factor ?? 'Unknown risk',
+              probability: typeof r.probability === 'number' ? r.probability : 0.5
+            };
+            if (r.factor) normalized.factor = r.factor;
+            if (r.impact) normalized.impact = r.impact;
+            return normalized;
+          }
+          return r;
+        });
+        mutated = true;
+      }
+
+      if (!mutated) return null;
+      return { _wasNormalized: true, data };
+    } catch { return null; }
+  }
+
+  // backward-compatible public API requested: validateLLMOutput
+  public validateLLMOutput(response: string) {
+    return AIService.validateLLMOutputRaw(response);
+  }
+
+  // Retry helper: given an initial raw text and a model caller that accepts a prompt and returns raw text,
+  // attempt up to `retries` times to get a valid JSON matching the schema. Increments metric on failures.
+  private async retryValidateAndRepair(initialText: string, prompt: string, modelCaller: (p: string) => Promise<string>, retries = 3) {
+    let check = AIService.validateLLMOutputRaw(initialText);
+    if (check.valid && check.parsed) return check.parsed;
+    // first failure
+    console.error('LLM validation failed for initial response:', { errors: check.errors, raw: initialText });
+    llmValidationFailures.inc();
+    // attempt retries
+    for (let i = 0; i < retries; i++) {
+      const improved = `${prompt}\n\nIMPORTANT: respond with valid JSON matching this schema: ${JSON.stringify(AIService._schema || {})}`;
+      try {
+        const text = await modelCaller(improved);
+        if (!text || text.trim() === '') {
+          console.error(`LLM call returned empty text on retry #${i + 1}`);
+          llmValidationFailures.inc();
+          continue;
+        }
+        const res = AIService.validateLLMOutputRaw(text);
+        if (res.valid && res.parsed) return res.parsed;
+        console.error(`LLM validation failed on retry #${i + 1}:`, { errors: res.errors, raw: text });
+        llmValidationFailures.inc();
+      } catch (e) {
+        // Log richer details for HTTP/axios errors so callers can diagnose 4xx/5xx responses
+        try {
+          const status = (e as any)?.response?.status ?? (e as any)?.status ?? null;
+          const data = (e as any)?.response?.data ?? (e as any)?.data ?? null;
+          console.error(`LLM call error during retry #${i + 1}: status=${status}`, data ?? e);
+        } catch (logErr) {
+          console.error(`LLM call error during retry #${i + 1}:`, e);
+        }
+        llmValidationFailures.inc();
+      }
+    }
+    // after retries, return a safe minimal fallback structured response
+    return {
+      prediction: null,
+      interpretation: 'Fallback minimal structured response due to repeated LLM validation failures',
+      risks: [],
+      opportunities: [],
+      recommendations: [],
+      confidence: 0,
+      metadata: {}
+    };
   }
 
   // build a prompt that includes simulation + context and asks for structured JSON output
@@ -148,16 +398,23 @@ Additional context: ${contextParts.join('; ') || 'none'}
         }
       }
 
-      const text = resp.choices?.[0]?.message?.content ?? resp.choices?.[0]?.text ?? '';
+      let text = resp.choices?.[0]?.message?.content ?? resp.choices?.[0]?.text ?? '';
 
-      let parsed: any = null;
-      try {
-        const m = text.match(/\{[\s\S]*\}/m);
-        const jsonText = m ? m[0] : text;
-        parsed = JSON.parse(jsonText);
-      } catch (err) {
-        parsed = { _parseError: String(err), raw: text };
-      }
+      // model caller closure accepts a prompt and returns raw text
+      const modelCaller = async (p: string) => {
+        const resp2 = await this.client.chat.completions.create({
+          model: usedModel || OPENAI_MODEL,
+          messages: [
+            { role: 'system', content: 'You produce only JSON responses when asked.' },
+            { role: 'user', content: p },
+          ],
+          max_tokens: 800,
+          temperature: 0.2,
+        });
+        return resp2.choices?.[0]?.message?.content ?? resp2.choices?.[0]?.text ?? '';
+      };
+
+      const parsed: any = await this.retryValidateAndRepair(text, prompt, modelCaller, 3);
 
       const updated = analysis;
       updated.resultData = {
@@ -198,6 +455,9 @@ Additional context: ${contextParts.join('; ') || 'none'}
   let text = '';
       let lastError: any = null;
 
+      // Compose finalPrompt = strict system prompt + user prompt to strongly enforce schema.
+      const finalPrompt = GEMINI_SYSTEM_PROMPT + '\n\n' + prompt;
+
       try {
         // dynamic require to avoid hard TypeScript dependency assumptions
         // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -212,13 +472,19 @@ Additional context: ${contextParts.join('; ') || 'none'}
             const gclient = new genai.GoogleGenAI({ apiKey: GEMINI_API_KEY });
             usedClient = 'google-genai';
             // SDK expects a 'contents' array for generateContent
-            try {
-              const resp = await gclient.models.generateContent({ model: `models/${GEMINI_MODEL}`, parent: `projects/${PROJECT}`, contents: [{ text: prompt }], maxOutputTokens: 800, temperature: 0.2 });
-              const cand = resp?.candidates?.[0];
-              const content = cand?.content;
-              const maybeText = content?.parts ? content.parts.map((p: any) => p.text).join('') : (content?.text ?? content ?? '');
-              if (maybeText) {
-                text = maybeText;
+              try {
+              // Gemini SDK: use the documented payload shape where `contents[].parts[].text`
+              // holds the prompt text and generation settings go into `generationConfig`.
+              const resp = await gclient.models.generateContent({
+                model: `models/${GEMINI_MODEL}`,
+                parent: `projects/${PROJECT}`,
+                contents: [{ parts: [{ text: finalPrompt }] }],
+                // Do NOT include responseMimeType here: some Generative Language endpoints reject it.
+                generationConfig: { maxOutputTokens: 800, temperature: 0.2 }
+              });
+              const extracted = AIService.extractGeminiTextFromData(resp);
+              if (extracted) {
+                text = AIService.cleanLLMText(extracted);
               }
             } catch (e) {
               lastError = e;
@@ -242,12 +508,17 @@ Additional context: ${contextParts.join('; ') || 'none'}
 
                   for (const alt of candidates) {
                     try {
-                      const resp2 = await gclient.models.generateContent({ model: `models/${alt}`, parent: `projects/${PROJECT}`, contents: [{ text: prompt }], maxOutputTokens: 800, temperature: 0.2 });
-                      const cand2 = resp2?.candidates?.[0];
-                      const content2 = cand2?.content;
-                      const maybeText2 = content2?.parts ? content2.parts.map((p: any) => p.text).join('') : (content2?.text ?? content2 ?? '');
-                      if (maybeText2) {
-                        text = maybeText2;
+                      // Use correct `contents[].parts[].text` + `generationConfig` for alternate models too
+                      const resp2 = await gclient.models.generateContent({
+                        model: `models/${alt}`,
+                        parent: `projects/${PROJECT}`,
+                        contents: [{ parts: [{ text: finalPrompt }] }],
+                        // Omit responseMimeType to avoid INVALID_ARGUMENT from REST API
+                        generationConfig: { maxOutputTokens: 800, temperature: 0.2 }
+                      });
+                      const extracted2 = AIService.extractGeminiTextFromData(resp2);
+                      if (extracted2) {
+                        text = AIService.cleanLLMText(extracted2);
                         usedModel = alt;
                         lastError = null;
                         break;
@@ -313,12 +584,17 @@ Additional context: ${contextParts.join('; ') || 'none'}
           for (const m of methodCandidates) {
             if (typeof client[m] === 'function') {
               try {
-                // Try the simple shape first
-                const maybeResp = await client[m]({ model: GEMINI_MODEL, prompt: { text: prompt }, maxOutputTokens: 800, temperature: 0.2 });
-                // try to extract text from a few known shapes
-                const maybeText = maybeResp?.candidates?.[0]?.content ?? maybeResp?.output?.[0]?.content ?? maybeResp?.output ?? maybeResp?.text ?? (maybeResp?.choices?.[0]?.message?.content);
-                if (maybeText) {
-                  text = maybeText;
+                // Try the simple shape first -- prefer the documented generation payload:
+                // `contents[0].parts[0].text` and `generationConfig`.
+                const maybeResp = await client[m]({
+                  model: GEMINI_MODEL,
+                  contents: [{ parts: [{ text: finalPrompt }] }],
+                  generationConfig: { maxOutputTokens: 800, temperature: 0.2 }
+                });
+                // robust extraction to avoid passing objects like { role: 'model' }
+                const extracted = AIService.extractGeminiTextFromData(maybeResp) || (maybeResp?.choices?.[0]?.message?.content ?? null);
+                if (extracted) {
+                  text = AIService.cleanLLMText(extracted);
                   got = maybeResp;
                   break;
                 }
@@ -338,15 +614,44 @@ Additional context: ${contextParts.join('; ') || 'none'}
         console.warn('Official @google/genai client not usable; falling back to REST. Error:', err?.message || err);
       }
 
-      // If the client branch didn't produce text, fall back to a minimal REST attempt using 'contents'.
+      // If the client branch didn't produce text, fall back to a REST attempt.
+      // Different versions of the Generative Language REST API expect different request shapes,
+      // so try several payload variants until one succeeds.
       if (!text) {
+        const tryPostVariants = async (baseUrl: string, headers: any, p: string) => {
+          const variants = [
+            // Preferred, documented shape
+            { body: { contents: [{ parts: [{ text: p }] }], generationConfig: { maxOutputTokens: 800, temperature: 0.2 } }, name: 'contents+generationConfig' },
+            // Some older endpoints/clients used a `prompt.text` shape; try with generationConfig if accepted
+            { body: { prompt: { text: p }, generationConfig: { maxOutputTokens: 800, temperature: 0.2 } }, name: 'prompt.text+generationConfig' },
+            { body: { input: p, maxOutputTokens: 800, temperature: 0.2 }, name: 'input' },
+            { body: { instances: [{ input: p }], parameters: { maxOutputTokens: 800, temperature: 0.2 } }, name: 'instances+parameters' },
+            { body: { messages: [{ role: 'user', content: p }] }, name: 'messages' },
+          ];
+          let lastErr: any = null;
+          for (const v of variants) {
+            try {
+              const res = await axios.post(baseUrl, v.body, { headers });
+              const extracted = AIService.extractGeminiTextFromData(res.data);
+              if (extracted) {
+                return { text: AIService.cleanLLMText(extracted), variant: v.name };
+              }
+              // continue trying variants if no textual content
+            } catch (err: any) {
+              lastErr = err;
+              // continue to next variant
+            }
+          }
+          throw lastErr || new Error('No variant produced a response');
+        };
+
         try {
           const useKeyParam = typeof GEMINI_API_KEY === 'string' && GEMINI_API_KEY.startsWith('AIza');
           const url = useKeyParam ? `https://generativelanguage.googleapis.com/v1/models/${usedModel}:generateContent?key=${GEMINI_API_KEY}` : `https://generativelanguage.googleapis.com/v1/models/${usedModel}:generateContent`;
           const headers: any = {};
           if (!useKeyParam) headers['Authorization'] = `Bearer ${GEMINI_API_KEY}`;
-          const res = await axios.post(url, { contents: [{ text: prompt }], maxOutputTokens: 800, temperature: 0.2 }, { headers });
-          text = res.data?.candidates?.[0]?.content?.parts ? res.data.candidates[0].content.parts.map((p: any) => p.text).join('') : (res.data?.candidates?.[0]?.content ?? res.data?.output ?? '');
+          const got = await tryPostVariants(url, headers, finalPrompt);
+          text = got.text;
         } catch (err: any) {
           lastError = err;
           const status = err?.response?.status;
@@ -368,8 +673,8 @@ Additional context: ${contextParts.join('; ') || 'none'}
                   const url2 = useKeyParam2 ? `https://generativelanguage.googleapis.com/v1/models/${alt}:generateContent?key=${GEMINI_API_KEY}` : `https://generativelanguage.googleapis.com/v1/models/${alt}:generateContent`;
                   const headers2: any = {};
                   if (!useKeyParam2) headers2['Authorization'] = `Bearer ${GEMINI_API_KEY}`;
-                  const res2 = await axios.post(url2, { contents: [{ text: prompt }], maxOutputTokens: 800, temperature: 0.2 }, { headers: headers2 });
-                  text = res2.data?.candidates?.[0]?.content?.parts ? res2.data.candidates[0].content.parts.map((p: any) => p.text).join('') : (res2.data?.candidates?.[0]?.content ?? res2.data?.output ?? '');
+                  const got2 = await tryPostVariants(url2, headers2, finalPrompt);
+                  text = got2.text;
                   if (text) { usedModel = alt; lastError = null; break; }
                 } catch (err2: any) {
                   lastError = err2;
@@ -408,13 +713,44 @@ Additional context: ${contextParts.join('; ') || 'none'}
         throw new Error(textErr);
       }
 
+      // Try validation + retry using a simple REST-based model caller for Gemini
       let parsed: any = null;
       try {
-        const m = text.match(/\{[\s\S]*\}/m);
-        const jsonText = m ? m[0] : text;
-        parsed = JSON.parse(jsonText);
-      } catch (err) {
-        parsed = { _parseError: String(err), raw: text };
+        const modelCaller = async (p: string) => {
+          const useKeyParam = typeof GEMINI_API_KEY === 'string' && GEMINI_API_KEY.startsWith('AIza');
+          const url = useKeyParam ? `https://generativelanguage.googleapis.com/v1/models/${usedModel}:generateContent?key=${GEMINI_API_KEY}` : `https://generativelanguage.googleapis.com/v1/models/${usedModel}:generateContent`;
+          const headers: any = {};
+          if (!useKeyParam) headers['Authorization'] = `Bearer ${GEMINI_API_KEY}`;
+          // Use the documented REST payload shape: contents[].parts[].text + generationConfig
+          const res = await axios.post(url, { contents: [{ parts: [{ text: p }] }], generationConfig: { maxOutputTokens: 800, temperature: 0.2 } }, { headers });
+          const extracted = AIService.extractGeminiTextFromData(res.data);
+          return AIService.cleanLLMText(extracted || '');
+        };
+        // Pre-normalize first raw response before entering retry loop to reduce failures.
+        const initialNormalized = this._attemptShapeNormalization(text, analysis);
+        if (initialNormalized && initialNormalized._wasNormalized) {
+          const check = AIService.validateLLMOutputRaw(JSON.stringify(initialNormalized.data));
+          if (check.valid && check.parsed) {
+            parsed = check.parsed;
+          }
+        }
+        if (!parsed) {
+          const finalParsed = await this.retryValidateAndRepair(text, finalPrompt, async (promptForRetry) => {
+            const raw = await modelCaller(promptForRetry);
+            const safeRaw = AIService.cleanLLMText(raw);
+            const normalized = this._attemptShapeNormalization(safeRaw, analysis);
+            return normalized && normalized._wasNormalized ? JSON.stringify(normalized.data) : safeRaw;
+          }, 3);
+          parsed = finalParsed;
+        }
+      } catch (e) {
+        parsed = { _parseError: String(e), raw: text };
+      }
+
+      // Ensure we never persist a null aiAnalysis — replace with a diagnostic object if parsing failed.
+      if (parsed == null) {
+        console.warn('AI parsed result is null — saving diagnostic object. raw text length=', (text || '')?.length || 0);
+        parsed = { _parseError: 'no-parsed-output', raw: text };
       }
 
       const updated = analysis;

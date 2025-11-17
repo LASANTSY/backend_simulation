@@ -43,6 +43,15 @@ const optimizer_controller_1 = __importDefault(require("./optimization/optimizer
 const ai_controller_1 = __importDefault(require("./ai/ai.controller"));
 const overpass_controller_1 = __importDefault(require("./integrations/overpass.controller"));
 const place_controller_1 = __importDefault(require("./integrations/place.controller"));
+const etl_1 = require("./etl");
+const mlflow_controller_1 = __importDefault(require("./mlflow/mlflow.controller"));
+const training_controller_1 = __importDefault(require("./training/training.controller"));
+const backtest_controller_1 = __importDefault(require("./backtest/backtest.controller"));
+const metrics_controller_1 = __importDefault(require("./monitoring/metrics.controller"));
+const drift_controller_1 = __importDefault(require("./monitoring/drift.controller"));
+const secrets_controller_1 = __importDefault(require("./secrets/secrets.controller"));
+const data_labeling_controller_1 = __importDefault(require("./etl/data-labeling.controller"));
+const queue_1 = require("./ai/queue");
 const error_handler_1 = __importDefault(require("./middleware/error-handler"));
 dotenv.config();
 async function bootstrap() {
@@ -68,11 +77,41 @@ async function bootstrap() {
     app.use('/serviceprediction', optimizer_controller_1.default);
     app.use('/serviceprediction', overpass_controller_1.default);
     app.use('/serviceprediction', place_controller_1.default);
+    app.use('/serviceprediction', mlflow_controller_1.default);
+    app.use('/serviceprediction', training_controller_1.default);
+    app.use('/serviceprediction', backtest_controller_1.default);
+    app.use('/', metrics_controller_1.default);
+    app.use('/', drift_controller_1.default);
+    app.use('/', secrets_controller_1.default);
+    app.use('/serviceprediction', data_labeling_controller_1.default);
     app.use(error_handler_1.default);
     const port = parseInt(process.env.APP_PORT || '3000', 10);
     app.listen(port, () => {
         console.log(`Server listening on http://localhost:${port}`);
         console.log(`Swagger docs at http://localhost:${port}/serviceprediction/docs`);
+        try {
+            (0, etl_1.initEtlModule)();
+            console.log('ETL module initialized');
+        }
+        catch (e) {
+            console.warn('ETL module failed to initialize:', e.message);
+        }
+        (async () => {
+            try {
+                if (process.env.DISABLE_QUEUE === 'true') {
+                    console.log('Queue initialization skipped (DISABLE_QUEUE=true)');
+                }
+                else {
+                    const router = await (0, queue_1.initQueue)();
+                    if (router)
+                        app.use('/admin/queues', router);
+                    console.log('BullMQ queue initialized and admin UI mounted at /admin/queues');
+                }
+            }
+            catch (e) {
+                console.warn('Failed to initialize queue or bull board:', e.message);
+            }
+        })();
     });
 }
 bootstrap().catch((err) => {

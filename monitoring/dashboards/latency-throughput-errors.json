@@ -1,0 +1,58 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "gnetId": null,
+  "graphTooltip": 0,
+  "id": null,
+  "iteration": 162383,
+  "links": [],
+  "panels": [
+    {
+      "type": "graph",
+      "title": "Prediction Latency",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(prediction_latency_seconds_bucket[1m])) by (le))",
+          "format": "time_series",
+          "legendFormat": "p95 latency"
+        }
+      ],
+      "id": 1
+    },
+    {
+      "type": "graph",
+      "title": "Throughput (predictions/sec)",
+      "targets": [
+        {
+          "expr": "rate(total_predictions[1m])",
+          "format": "time_series",
+          "legendFormat": "pred/sec"
+        }
+      ],
+      "id": 2
+    },
+    {
+      "type": "graph",
+      "title": "API Errors",
+      "targets": [
+        {
+          "expr": "rate(api_errors[5m])",
+          "format": "time_series",
+          "legendFormat": "errors/sec"
+        }
+      ],
+      "id": 3
+    }
+  ],
+  "schemaVersion": 16,
+  "style": "dark",
+  "tags": ["monitoring"],
+  "templating": {"list": []},
+  "time": {"from": "now-1h", "to": "now"},
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Mobilisation Backend Metrics",
+  "version": 1
+}

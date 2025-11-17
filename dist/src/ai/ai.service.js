@@ -32,6 +32,12 @@ const AnalysisResult_1 = require("../entities/AnalysisResult");
 const Simulation_1 = require("../entities/Simulation");
 const openai_1 = require("openai");
 const axios_1 = __importDefault(require("axios"));
+const ajv_1 = __importDefault(require("ajv"));
+const ajv_formats_1 = __importDefault(require("ajv-formats"));
+const fs = __importStar(require("fs"));
+const path = __importStar(require("path"));
+const metrics_service_1 = require("../monitoring/metrics.service");
+const llm_parser_1 = require("./llm-parser");
 const context_service_1 = __importDefault(require("../context/context.service"));
 const dotenv = __importStar(require("dotenv"));
 dotenv.config();
@@ -41,6 +47,47 @@ const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4';
 const OPENAI_FALLBACK_MODEL = process.env.OPENAI_FALLBACK_MODEL || 'gpt-3.5-turbo';
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+const GEMINI_SYSTEM_PROMPT = `Vous êtes un assistant automatique. Vous devez RÉPONDRE UNIQUEMENT par un objet JSON valide correspondant EXACTEMENT au schéma demandé et RIEN D'AUTRE (pas d'explications, pas de Markdown, pas de backticks, pas de commentaires).
+
+La structure exacte attendue est :
+{
+  "prediction": {
+    "summary": "string (une phrase)",
+    "values": [ number, number, ... ]
+  },
+  "risks": [
+    {
+      "factor": "string",
+      "description": "string",
+      "probability": 0.75,    // NOMBRE entre 0.0 et 1.0 (exemples: 0.3, 0.7, 0.9)
+      "impact": "high" | "medium" | "low"
+    }
+  ],
+  "recommendations": [
+    {
+      "priority": 1,          // ENTIER (1,2,3,...)
+      "action": "string"
+    }
+  ]
+}
+
+Règles obligatoires STRICTES :
+1) Retournez STRICTEMENT le JSON ci-dessus et AUCUNE propriété supplémentaire (additionalProperties interdites) à tous les niveaux.
+2) prediction.summary : string, une seule phrase.
+3) prediction.values : tableau d'objets et NON des nombres bruts. Chaque objet = { "key": string, "value": number, "horizon": string|null }. 'value' doit être numérique.
+4) risks : tableau d'objets. Chaque objet = { "factor": string, "description": string, "probability": number (0..1), "impact": "high"|"medium"|"low" }. NE PAS ajouter d'autres propriétés.
+5) recommendations : tableau d'objets. Chaque objet = { "priority": integer >=1, "action": string }. Pas d'autres propriétés.
+6) Ajoutez OBLIGATOIREMENT les propriétés : prediction, interpretation, risks, opportunities, recommendations, confidence, metadata.
+7) opportunities : tableau (peut être vide) d'objets { "description": string, "impact": number }. Si aucune opportunité, renvoyer [].
+8) confidence : nombre entre 0 et 1.
+9) metadata : objet pouvant contenir { "time": string|null, "weather": string|null, "economy": {}, "demography": {} }. Si pas d'info, valeurs null ou objets vides.
+10) AUCUNE valeur textuelle pour probability ou priority (uniquement number/integer).
+11) Si une valeur est inconnue, utilisez null, ne créez pas de nouvelles clefs.
+12) Ne mettez pas de texte explicatif autour : pas de Markdown, pas de code fences, pas de prose, uniquement JSON.
+13) Exemples valides probability : 0.3, 0.7, 0.9. Exemples priority : 1,2,3.
+
+Si vous avez compris, répondez uniquement par le JSON demandé lorsqu'on vous fournira la consigne utilisateur.
+`;
 class AIService {
     constructor() {
         this.analysisRepo = data_source_1.default.getRepository(AnalysisResult_1.AnalysisResult);
@@ -60,6 +107,205 @@ class AIService {
         else {
             this.client = null;
         }
+    }
+    static extractGeminiTextFromData(data) {
+        var _a, _b, _c;
+        try {
+            if (!data)
+                return null;
+            const cand = (_a = data === null || data === void 0 ? void 0 : data.candidates) === null || _a === void 0 ? void 0 : _a[0];
+            const content = cand === null || cand === void 0 ? void 0 : cand.content;
+            const parts = content === null || content === void 0 ? void 0 : content.parts;
+            if (Array.isArray(parts) && parts.length > 0) {
+                const texts = parts.map((p) => (typeof (p === null || p === void 0 ? void 0 : p.text) === 'string' ? p.text : '')).filter(Boolean);
+                if (texts.length)
+                    return texts.join('');
+            }
+            if (typeof (content === null || content === void 0 ? void 0 : content.text) === 'string')
+                return content.text;
+            if (typeof content === 'string')
+                return content;
+            const output = data === null || data === void 0 ? void 0 : data.output;
+            if (typeof output === 'string')
+                return output;
+            if (Array.isArray(output) && output.length) {
+                const o0 = output[0];
+                if (typeof o0 === 'string')
+                    return o0;
+                if (((_b = o0 === null || o0 === void 0 ? void 0 : o0.content) === null || _b === void 0 ? void 0 : _b.parts) && Array.isArray(o0.content.parts)) {
+                    const texts = o0.content.parts.map((p) => (typeof (p === null || p === void 0 ? void 0 : p.text) === 'string' ? p.text : '')).filter(Boolean);
+                    if (texts.length)
+                        return texts.join('');
+                }
+                if (typeof ((_c = o0 === null || o0 === void 0 ? void 0 : o0.content) === null || _c === void 0 ? void 0 : _c.text) === 'string')
+                    return o0.content.text;
+            }
+            if (typeof (data === null || data === void 0 ? void 0 : data.text) === 'string')
+                return data.text;
+            if (typeof data === 'string')
+                return data;
+            console.warn('[extractGeminiTextFromData] No text found in response structure:', JSON.stringify(data).slice(0, 500));
+            return null;
+        }
+        catch (err) {
+            console.error('[extractGeminiTextFromData] Extraction error:', err);
+            return null;
+        }
+    }
+    static cleanLLMText(raw) {
+        if (!raw || typeof raw !== 'string')
+            return '';
+        const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+        if (fenced && fenced[1])
+            return fenced[1].trim();
+        return raw.replace(/```[\s\S]*?```/g, (m) => m.replace(/```/g, '')).trim();
+    }
+    static loadSchemaOnce() {
+        if (AIService._validateFn)
+            return;
+        try {
+            const ajv = new ajv_1.default({ allErrors: true, strict: true, coerceTypes: false });
+            (0, ajv_formats_1.default)(ajv);
+            const schemaPath = path.join(__dirname, 'schemas', 'analysis-result.schema.json');
+            const schemaText = fs.readFileSync(schemaPath, 'utf8');
+            const schema = JSON.parse(schemaText);
+            AIService._schema = schema;
+            AIService._ajv = ajv;
+            AIService._validateFn = ajv.compile(schema);
+        }
+        catch (e) {
+            AIService._validateFn = null;
+            AIService._schema = null;
+        }
+    }
+    static validateLLMOutputRaw(rawText) {
+        var _a;
+        AIService.loadSchemaOnce();
+        if (!AIService._validateFn)
+            return { valid: true, errors: null, parsed: null };
+        try {
+            const jsonText = (_a = (0, llm_parser_1.extractJSON)(rawText)) !== null && _a !== void 0 ? _a : rawText;
+            const parsed = JSON.parse(jsonText);
+            const valid = AIService._validateFn(parsed);
+            return { valid: Boolean(valid), errors: AIService._validateFn.errors, parsed };
+        }
+        catch (e) {
+            return { valid: false, errors: [{ message: String(e) }], parsed: null };
+        }
+    }
+    _attemptShapeNormalization(raw, analysis) {
+        var _a, _b;
+        try {
+            const jsonText = (_a = (0, llm_parser_1.extractJSON)(raw)) !== null && _a !== void 0 ? _a : raw;
+            const data = JSON.parse(jsonText);
+            let mutated = false;
+            const ensure = (k, v) => { if (!(k in data)) {
+                data[k] = v;
+                mutated = true;
+            } };
+            ensure('interpretation', 'placeholder interpretation');
+            ensure('opportunities', []);
+            ensure('confidence', 0.5);
+            ensure('metadata', { time: null, weather: null, economy: {}, demography: {} });
+            if (data.metadata && typeof data.metadata === 'object') {
+                if (data.metadata.time && typeof data.metadata.time === 'string') {
+                    if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(data.metadata.time)) {
+                        data.metadata.time = null;
+                        mutated = true;
+                    }
+                }
+                if (data.metadata.weather !== null && typeof data.metadata.weather !== 'string') {
+                    data.metadata.weather = null;
+                    mutated = true;
+                }
+            }
+            if (data.prediction && Array.isArray(data.prediction.values)) {
+                const arr = data.prediction.values;
+                if (arr.length > 0 && typeof arr[0] !== 'object') {
+                    const months = (((_b = analysis === null || analysis === void 0 ? void 0 : analysis.resultData) === null || _b === void 0 ? void 0 : _b.months) && Array.isArray(analysis.resultData.months)) ? analysis.resultData.months : [];
+                    data.prediction.values = arr.map((v, idx) => {
+                        var _a, _b;
+                        return ({
+                            key: (_a = months[idx]) !== null && _a !== void 0 ? _a : `value_${idx}`,
+                            value: typeof v === 'number' ? v : Number(v),
+                            horizon: (_b = months[idx]) !== null && _b !== void 0 ? _b : null
+                        });
+                    });
+                    mutated = true;
+                }
+            }
+            if (Array.isArray(data.risks)) {
+                data.risks = data.risks.map((r) => {
+                    var _a, _b;
+                    if (r && typeof r === 'object') {
+                        const normalized = {
+                            description: (_b = (_a = r.description) !== null && _a !== void 0 ? _a : r.factor) !== null && _b !== void 0 ? _b : 'Unknown risk',
+                            probability: typeof r.probability === 'number' ? r.probability : 0.5
+                        };
+                        if (r.factor)
+                            normalized.factor = r.factor;
+                        if (r.impact)
+                            normalized.impact = r.impact;
+                        return normalized;
+                    }
+                    return r;
+                });
+                mutated = true;
+            }
+            if (!mutated)
+                return null;
+            return { _wasNormalized: true, data };
+        }
+        catch {
+            return null;
+        }
+    }
+    validateLLMOutput(response) {
+        return AIService.validateLLMOutputRaw(response);
+    }
+    async retryValidateAndRepair(initialText, prompt, modelCaller, retries = 3) {
+        var _a, _b, _c, _d, _e, _f;
+        let check = AIService.validateLLMOutputRaw(initialText);
+        if (check.valid && check.parsed)
+            return check.parsed;
+        console.error('LLM validation failed for initial response:', { errors: check.errors, raw: initialText });
+        metrics_service_1.llmValidationFailures.inc();
+        for (let i = 0; i < retries; i++) {
+            const improved = `${prompt}\n\nIMPORTANT: respond with valid JSON matching this schema: ${JSON.stringify(AIService._schema || {})}`;
+            try {
+                const text = await modelCaller(improved);
+                if (!text || text.trim() === '') {
+                    console.error(`LLM call returned empty text on retry #${i + 1}`);
+                    metrics_service_1.llmValidationFailures.inc();
+                    continue;
+                }
+                const res = AIService.validateLLMOutputRaw(text);
+                if (res.valid && res.parsed)
+                    return res.parsed;
+                console.error(`LLM validation failed on retry #${i + 1}:`, { errors: res.errors, raw: text });
+                metrics_service_1.llmValidationFailures.inc();
+            }
+            catch (e) {
+                try {
+                    const status = (_c = (_b = (_a = e === null || e === void 0 ? void 0 : e.response) === null || _a === void 0 ? void 0 : _a.status) !== null && _b !== void 0 ? _b : e === null || e === void 0 ? void 0 : e.status) !== null && _c !== void 0 ? _c : null;
+                    const data = (_f = (_e = (_d = e === null || e === void 0 ? void 0 : e.response) === null || _d === void 0 ? void 0 : _d.data) !== null && _e !== void 0 ? _e : e === null || e === void 0 ? void 0 : e.data) !== null && _f !== void 0 ? _f : null;
+                    console.error(`LLM call error during retry #${i + 1}: status=${status}`, data !== null && data !== void 0 ? data : e);
+                }
+                catch (logErr) {
+                    console.error(`LLM call error during retry #${i + 1}:`, e);
+                }
+                metrics_service_1.llmValidationFailures.inc();
+            }
+        }
+        return {
+            prediction: null,
+            interpretation: 'Fallback minimal structured response due to repeated LLM validation failures',
+            risks: [],
+            opportunities: [],
+            recommendations: [],
+            confidence: 0,
+            metadata: {}
+        };
     }
     buildPrompt(sim, analysis, extraContext = {}) {
         const contextParts = [];
@@ -96,7 +342,7 @@ Additional context: ${contextParts.join('; ') || 'none'}
         return prompt;
     }
     async enrichAnalysis(analysisId, extraContext = {}) {
-        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _0, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38;
+        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _0, _1, _2, _3, _4, _5, _6;
         const analysis = await this.analysisRepo.findOne({ where: { id: analysisId }, relations: ['simulation'] });
         if (!analysis)
             throw new Error('AnalysisResult not found');
@@ -161,16 +407,21 @@ Additional context: ${contextParts.join('; ') || 'none'}
                     throw err;
                 }
             }
-            const text = (_g = (_d = (_c = (_b = (_a = resp.choices) === null || _a === void 0 ? void 0 : _a[0]) === null || _b === void 0 ? void 0 : _b.message) === null || _c === void 0 ? void 0 : _c.content) !== null && _d !== void 0 ? _d : (_f = (_e = resp.choices) === null || _e === void 0 ? void 0 : _e[0]) === null || _f === void 0 ? void 0 : _f.text) !== null && _g !== void 0 ? _g : '';
-            let parsed = null;
-            try {
-                const m = text.match(/\{[\s\S]*\}/m);
-                const jsonText = m ? m[0] : text;
-                parsed = JSON.parse(jsonText);
-            }
-            catch (err) {
-                parsed = { _parseError: String(err), raw: text };
-            }
+            let text = (_g = (_d = (_c = (_b = (_a = resp.choices) === null || _a === void 0 ? void 0 : _a[0]) === null || _b === void 0 ? void 0 : _b.message) === null || _c === void 0 ? void 0 : _c.content) !== null && _d !== void 0 ? _d : (_f = (_e = resp.choices) === null || _e === void 0 ? void 0 : _e[0]) === null || _f === void 0 ? void 0 : _f.text) !== null && _g !== void 0 ? _g : '';
+            const modelCaller = async (p) => {
+                var _a, _b, _c, _d, _e, _f, _g;
+                const resp2 = await this.client.chat.completions.create({
+                    model: usedModel || OPENAI_MODEL,
+                    messages: [
+                        { role: 'system', content: 'You produce only JSON responses when asked.' },
+                        { role: 'user', content: p },
+                    ],
+                    max_tokens: 800,
+                    temperature: 0.2,
+                });
+                return (_g = (_d = (_c = (_b = (_a = resp2.choices) === null || _a === void 0 ? void 0 : _a[0]) === null || _b === void 0 ? void 0 : _b.message) === null || _c === void 0 ? void 0 : _c.content) !== null && _d !== void 0 ? _d : (_f = (_e = resp2.choices) === null || _e === void 0 ? void 0 : _e[0]) === null || _f === void 0 ? void 0 : _f.text) !== null && _g !== void 0 ? _g : '';
+            };
+            const parsed = await this.retryValidateAndRepair(text, prompt, modelCaller, 3);
             const updated = analysis;
             updated.resultData = {
                 ...updated.resultData,
@@ -203,6 +454,7 @@ Additional context: ${contextParts.join('; ') || 'none'}
             let usedModel = GEMINI_MODEL;
             let text = '';
             let lastError = null;
+            const finalPrompt = GEMINI_SYSTEM_PROMPT + '\n\n' + prompt;
             try {
                 const genai = require('@google/genai');
                 const PROJECT = process.env.GENAI_PROJECT || process.env.GOOGLE_CLOUD_PROJECT || process.env.GOOGLE_PROJECT || undefined;
@@ -212,23 +464,26 @@ Additional context: ${contextParts.join('; ') || 'none'}
                         const gclient = new genai.GoogleGenAI({ apiKey: GEMINI_API_KEY });
                         usedClient = 'google-genai';
                         try {
-                            const resp = await gclient.models.generateContent({ model: `models/${GEMINI_MODEL}`, parent: `projects/${PROJECT}`, contents: [{ text: prompt }], maxOutputTokens: 800, temperature: 0.2 });
-                            const cand = (_h = resp === null || resp === void 0 ? void 0 : resp.candidates) === null || _h === void 0 ? void 0 : _h[0];
-                            const content = cand === null || cand === void 0 ? void 0 : cand.content;
-                            const maybeText = (content === null || content === void 0 ? void 0 : content.parts) ? content.parts.map((p) => p.text).join('') : ((_k = (_j = content === null || content === void 0 ? void 0 : content.text) !== null && _j !== void 0 ? _j : content) !== null && _k !== void 0 ? _k : '');
-                            if (maybeText) {
-                                text = maybeText;
+                            const resp = await gclient.models.generateContent({
+                                model: `models/${GEMINI_MODEL}`,
+                                parent: `projects/${PROJECT}`,
+                                contents: [{ parts: [{ text: finalPrompt }] }],
+                                generationConfig: { maxOutputTokens: 800, temperature: 0.2 }
+                            });
+                            const extracted = AIService.extractGeminiTextFromData(resp);
+                            if (extracted) {
+                                text = AIService.cleanLLMText(extracted);
                             }
                         }
                         catch (e) {
                             lastError = e;
-                            const status = (_o = (_m = (_l = e === null || e === void 0 ? void 0 : e.response) === null || _l === void 0 ? void 0 : _l.status) !== null && _m !== void 0 ? _m : e === null || e === void 0 ? void 0 : e.code) !== null && _o !== void 0 ? _o : null;
+                            const status = (_k = (_j = (_h = e === null || e === void 0 ? void 0 : e.response) === null || _h === void 0 ? void 0 : _h.status) !== null && _j !== void 0 ? _j : e === null || e === void 0 ? void 0 : e.code) !== null && _k !== void 0 ? _k : null;
                             const msg = (e === null || e === void 0 ? void 0 : e.message) || '';
                             console.warn('google-genai generateContent failed', status, msg);
                             if (status === 404 || /not found|Requested entity was not found/i.test(msg)) {
                                 try {
                                     const listRes = await gclient.models.list({ parent: `projects/${PROJECT}` });
-                                    const items = (_v = (_t = (_r = (_q = (_p = listRes === null || listRes === void 0 ? void 0 : listRes.pageInternal) !== null && _p !== void 0 ? _p : listRes === null || listRes === void 0 ? void 0 : listRes.page) !== null && _q !== void 0 ? _q : listRes === null || listRes === void 0 ? void 0 : listRes.models) !== null && _r !== void 0 ? _r : (_s = listRes === null || listRes === void 0 ? void 0 : listRes.pageInternal) === null || _s === void 0 ? void 0 : _s.pageInternal) !== null && _t !== void 0 ? _t : (_u = listRes === null || listRes === void 0 ? void 0 : listRes.pageInternal) === null || _u === void 0 ? void 0 : _u.page) !== null && _v !== void 0 ? _v : [];
+                                    const items = (_s = (_q = (_o = (_m = (_l = listRes === null || listRes === void 0 ? void 0 : listRes.pageInternal) !== null && _l !== void 0 ? _l : listRes === null || listRes === void 0 ? void 0 : listRes.page) !== null && _m !== void 0 ? _m : listRes === null || listRes === void 0 ? void 0 : listRes.models) !== null && _o !== void 0 ? _o : (_p = listRes === null || listRes === void 0 ? void 0 : listRes.pageInternal) === null || _p === void 0 ? void 0 : _p.pageInternal) !== null && _q !== void 0 ? _q : (_r = listRes === null || listRes === void 0 ? void 0 : listRes.pageInternal) === null || _r === void 0 ? void 0 : _r.page) !== null && _s !== void 0 ? _s : [];
                                     const modelsArr = Array.isArray(items) ? items : ((items === null || items === void 0 ? void 0 : items.pageInternal) || (items === null || items === void 0 ? void 0 : items.models) || []);
                                     const candidates = modelsArr
                                         .filter(m => { var _a, _b; return (m === null || m === void 0 ? void 0 : m.name) && (((_b = (_a = m === null || m === void 0 ? void 0 : m.supportedActions) === null || _a === void 0 ? void 0 : _a.includes) === null || _b === void 0 ? void 0 : _b.call(_a, 'generateContent')) || ((m === null || m === void 0 ? void 0 : m.supportedActions) && m.supportedActions.indexOf('generateContent') >= 0)); })
@@ -239,12 +494,15 @@ Additional context: ${contextParts.join('; ') || 'none'}
                                         .filter(n => n && n !== GEMINI_MODEL);
                                     for (const alt of candidates) {
                                         try {
-                                            const resp2 = await gclient.models.generateContent({ model: `models/${alt}`, parent: `projects/${PROJECT}`, contents: [{ text: prompt }], maxOutputTokens: 800, temperature: 0.2 });
-                                            const cand2 = (_w = resp2 === null || resp2 === void 0 ? void 0 : resp2.candidates) === null || _w === void 0 ? void 0 : _w[0];
-                                            const content2 = cand2 === null || cand2 === void 0 ? void 0 : cand2.content;
-                                            const maybeText2 = (content2 === null || content2 === void 0 ? void 0 : content2.parts) ? content2.parts.map((p) => p.text).join('') : ((_y = (_x = content2 === null || content2 === void 0 ? void 0 : content2.text) !== null && _x !== void 0 ? _x : content2) !== null && _y !== void 0 ? _y : '');
-                                            if (maybeText2) {
-                                                text = maybeText2;
+                                            const resp2 = await gclient.models.generateContent({
+                                                model: `models/${alt}`,
+                                                parent: `projects/${PROJECT}`,
+                                                contents: [{ parts: [{ text: finalPrompt }] }],
+                                                generationConfig: { maxOutputTokens: 800, temperature: 0.2 }
+                                            });
+                                            const extracted2 = AIService.extractGeminiTextFromData(resp2);
+                                            if (extracted2) {
+                                                text = AIService.cleanLLMText(extracted2);
                                                 usedModel = alt;
                                                 lastError = null;
                                                 break;
@@ -311,10 +569,14 @@ Additional context: ${contextParts.join('; ') || 'none'}
                     for (const m of methodCandidates) {
                         if (typeof client[m] === 'function') {
                             try {
-                                const maybeResp = await client[m]({ model: GEMINI_MODEL, prompt: { text: prompt }, maxOutputTokens: 800, temperature: 0.2 });
-                                const maybeText = (_6 = (_5 = (_4 = (_1 = (_0 = (_z = maybeResp === null || maybeResp === void 0 ? void 0 : maybeResp.candidates) === null || _z === void 0 ? void 0 : _z[0]) === null || _0 === void 0 ? void 0 : _0.content) !== null && _1 !== void 0 ? _1 : (_3 = (_2 = maybeResp === null || maybeResp === void 0 ? void 0 : maybeResp.output) === null || _2 === void 0 ? void 0 : _2[0]) === null || _3 === void 0 ? void 0 : _3.content) !== null && _4 !== void 0 ? _4 : maybeResp === null || maybeResp === void 0 ? void 0 : maybeResp.output) !== null && _5 !== void 0 ? _5 : maybeResp === null || maybeResp === void 0 ? void 0 : maybeResp.text) !== null && _6 !== void 0 ? _6 : ((_9 = (_8 = (_7 = maybeResp === null || maybeResp === void 0 ? void 0 : maybeResp.choices) === null || _7 === void 0 ? void 0 : _7[0]) === null || _8 === void 0 ? void 0 : _8.message) === null || _9 === void 0 ? void 0 : _9.content);
-                                if (maybeText) {
-                                    text = maybeText;
+                                const maybeResp = await client[m]({
+                                    model: GEMINI_MODEL,
+                                    contents: [{ parts: [{ text: finalPrompt }] }],
+                                    generationConfig: { maxOutputTokens: 800, temperature: 0.2 }
+                                });
+                                const extracted = AIService.extractGeminiTextFromData(maybeResp) || ((_w = (_v = (_u = (_t = maybeResp === null || maybeResp === void 0 ? void 0 : maybeResp.choices) === null || _t === void 0 ? void 0 : _t[0]) === null || _u === void 0 ? void 0 : _u.message) === null || _v === void 0 ? void 0 : _v.content) !== null && _w !== void 0 ? _w : null);
+                                if (extracted) {
+                                    text = AIService.cleanLLMText(extracted);
                                     got = maybeResp;
                                     break;
                                 }
@@ -333,24 +595,47 @@ Additional context: ${contextParts.join('; ') || 'none'}
                 console.warn('Official @google/genai client not usable; falling back to REST. Error:', (err === null || err === void 0 ? void 0 : err.message) || err);
             }
             if (!text) {
+                const tryPostVariants = async (baseUrl, headers, p) => {
+                    const variants = [
+                        { body: { contents: [{ parts: [{ text: p }] }], generationConfig: { maxOutputTokens: 800, temperature: 0.2 } }, name: 'contents+generationConfig' },
+                        { body: { prompt: { text: p }, generationConfig: { maxOutputTokens: 800, temperature: 0.2 } }, name: 'prompt.text+generationConfig' },
+                        { body: { input: p, maxOutputTokens: 800, temperature: 0.2 }, name: 'input' },
+                        { body: { instances: [{ input: p }], parameters: { maxOutputTokens: 800, temperature: 0.2 } }, name: 'instances+parameters' },
+                        { body: { messages: [{ role: 'user', content: p }] }, name: 'messages' },
+                    ];
+                    let lastErr = null;
+                    for (const v of variants) {
+                        try {
+                            const res = await axios_1.default.post(baseUrl, v.body, { headers });
+                            const extracted = AIService.extractGeminiTextFromData(res.data);
+                            if (extracted) {
+                                return { text: AIService.cleanLLMText(extracted), variant: v.name };
+                            }
+                        }
+                        catch (err) {
+                            lastErr = err;
+                        }
+                    }
+                    throw lastErr || new Error('No variant produced a response');
+                };
                 try {
                     const useKeyParam = typeof GEMINI_API_KEY === 'string' && GEMINI_API_KEY.startsWith('AIza');
                     const url = useKeyParam ? `https://generativelanguage.googleapis.com/v1/models/${usedModel}:generateContent?key=${GEMINI_API_KEY}` : `https://generativelanguage.googleapis.com/v1/models/${usedModel}:generateContent`;
                     const headers = {};
                     if (!useKeyParam)
                         headers['Authorization'] = `Bearer ${GEMINI_API_KEY}`;
-                    const res = await axios_1.default.post(url, { contents: [{ text: prompt }], maxOutputTokens: 800, temperature: 0.2 }, { headers });
-                    text = ((_13 = (_12 = (_11 = (_10 = res.data) === null || _10 === void 0 ? void 0 : _10.candidates) === null || _11 === void 0 ? void 0 : _11[0]) === null || _12 === void 0 ? void 0 : _12.content) === null || _13 === void 0 ? void 0 : _13.parts) ? res.data.candidates[0].content.parts.map((p) => p.text).join('') : ((_19 = (_17 = (_16 = (_15 = (_14 = res.data) === null || _14 === void 0 ? void 0 : _14.candidates) === null || _15 === void 0 ? void 0 : _15[0]) === null || _16 === void 0 ? void 0 : _16.content) !== null && _17 !== void 0 ? _17 : (_18 = res.data) === null || _18 === void 0 ? void 0 : _18.output) !== null && _19 !== void 0 ? _19 : '');
+                    const got = await tryPostVariants(url, headers, finalPrompt);
+                    text = got.text;
                 }
                 catch (err) {
                     lastError = err;
-                    const status = (_20 = err === null || err === void 0 ? void 0 : err.response) === null || _20 === void 0 ? void 0 : _20.status;
-                    const data = (_21 = err === null || err === void 0 ? void 0 : err.response) === null || _21 === void 0 ? void 0 : _21.data;
+                    const status = (_x = err === null || err === void 0 ? void 0 : err.response) === null || _x === void 0 ? void 0 : _x.status;
+                    const data = (_y = err === null || err === void 0 ? void 0 : err.response) === null || _y === void 0 ? void 0 : _y.data;
                     if (status === 404) {
                         try {
                             const listUrl = `https://generativelanguage.googleapis.com/v1/models?key=${GEMINI_API_KEY}`;
                             const listRes = await axios_1.default.get(listUrl);
-                            const models = (_23 = (_22 = listRes.data) === null || _22 === void 0 ? void 0 : _22.models) !== null && _23 !== void 0 ? _23 : [];
+                            const models = (_0 = (_z = listRes.data) === null || _z === void 0 ? void 0 : _z.models) !== null && _0 !== void 0 ? _0 : [];
                             const candidates = models
                                 .filter(m => { var _a; return (m === null || m === void 0 ? void 0 : m.name) && ((_a = m === null || m === void 0 ? void 0 : m.supportedActions) === null || _a === void 0 ? void 0 : _a.includes) && m.supportedActions.includes('generateContent'); })
                                 .map(m => m.name.startsWith('models/') ? m.name.replace(/^models\//, '') : m.name)
@@ -362,8 +647,8 @@ Additional context: ${contextParts.join('; ') || 'none'}
                                     const headers2 = {};
                                     if (!useKeyParam2)
                                         headers2['Authorization'] = `Bearer ${GEMINI_API_KEY}`;
-                                    const res2 = await axios_1.default.post(url2, { contents: [{ text: prompt }], maxOutputTokens: 800, temperature: 0.2 }, { headers: headers2 });
-                                    text = ((_27 = (_26 = (_25 = (_24 = res2.data) === null || _24 === void 0 ? void 0 : _24.candidates) === null || _25 === void 0 ? void 0 : _25[0]) === null || _26 === void 0 ? void 0 : _26.content) === null || _27 === void 0 ? void 0 : _27.parts) ? res2.data.candidates[0].content.parts.map((p) => p.text).join('') : ((_33 = (_31 = (_30 = (_29 = (_28 = res2.data) === null || _28 === void 0 ? void 0 : _28.candidates) === null || _29 === void 0 ? void 0 : _29[0]) === null || _30 === void 0 ? void 0 : _30.content) !== null && _31 !== void 0 ? _31 : (_32 = res2.data) === null || _32 === void 0 ? void 0 : _32.output) !== null && _33 !== void 0 ? _33 : '');
+                                    const got2 = await tryPostVariants(url2, headers2, finalPrompt);
+                                    text = got2.text;
                                     if (text) {
                                         usedModel = alt;
                                         lastError = null;
@@ -390,8 +675,8 @@ Additional context: ${contextParts.join('; ') || 'none'}
             }
             if (lastError && !text) {
                 const err = lastError;
-                const status = (_36 = (_35 = (_34 = err === null || err === void 0 ? void 0 : err.response) === null || _34 === void 0 ? void 0 : _34.status) !== null && _35 !== void 0 ? _35 : err === null || err === void 0 ? void 0 : err.code) !== null && _36 !== void 0 ? _36 : null;
-                const data = (_38 = (_37 = err === null || err === void 0 ? void 0 : err.response) === null || _37 === void 0 ? void 0 : _37.data) !== null && _38 !== void 0 ? _38 : null;
+                const status = (_3 = (_2 = (_1 = err === null || err === void 0 ? void 0 : err.response) === null || _1 === void 0 ? void 0 : _1.status) !== null && _2 !== void 0 ? _2 : err === null || err === void 0 ? void 0 : err.code) !== null && _3 !== void 0 ? _3 : null;
+                const data = (_5 = (_4 = err === null || err === void 0 ? void 0 : err.response) === null || _4 === void 0 ? void 0 : _4.data) !== null && _5 !== void 0 ? _5 : null;
                 const textErr = `Gemini error: status=${status} message=${(err === null || err === void 0 ? void 0 : err.message) || String(err)}`;
                 const updatedErrAnalysis = analysis;
                 updatedErrAnalysis.resultData = {
@@ -407,12 +692,39 @@ Additional context: ${contextParts.join('; ') || 'none'}
             }
             let parsed = null;
             try {
-                const m = text.match(/\{[\s\S]*\}/m);
-                const jsonText = m ? m[0] : text;
-                parsed = JSON.parse(jsonText);
+                const modelCaller = async (p) => {
+                    const useKeyParam = typeof GEMINI_API_KEY === 'string' && GEMINI_API_KEY.startsWith('AIza');
+                    const url = useKeyParam ? `https://generativelanguage.googleapis.com/v1/models/${usedModel}:generateContent?key=${GEMINI_API_KEY}` : `https://generativelanguage.googleapis.com/v1/models/${usedModel}:generateContent`;
+                    const headers = {};
+                    if (!useKeyParam)
+                        headers['Authorization'] = `Bearer ${GEMINI_API_KEY}`;
+                    const res = await axios_1.default.post(url, { contents: [{ parts: [{ text: p }] }], generationConfig: { maxOutputTokens: 800, temperature: 0.2 } }, { headers });
+                    const extracted = AIService.extractGeminiTextFromData(res.data);
+                    return AIService.cleanLLMText(extracted || '');
+                };
+                const initialNormalized = this._attemptShapeNormalization(text, analysis);
+                if (initialNormalized && initialNormalized._wasNormalized) {
+                    const check = AIService.validateLLMOutputRaw(JSON.stringify(initialNormalized.data));
+                    if (check.valid && check.parsed) {
+                        parsed = check.parsed;
+                    }
+                }
+                if (!parsed) {
+                    const finalParsed = await this.retryValidateAndRepair(text, finalPrompt, async (promptForRetry) => {
+                        const raw = await modelCaller(promptForRetry);
+                        const safeRaw = AIService.cleanLLMText(raw);
+                        const normalized = this._attemptShapeNormalization(safeRaw, analysis);
+                        return normalized && normalized._wasNormalized ? JSON.stringify(normalized.data) : safeRaw;
+                    }, 3);
+                    parsed = finalParsed;
+                }
             }
-            catch (err) {
-                parsed = { _parseError: String(err), raw: text };
+            catch (e) {
+                parsed = { _parseError: String(e), raw: text };
+            }
+            if (parsed == null) {
+                console.warn('AI parsed result is null — saving diagnostic object. raw text length=', ((_6 = (text || '')) === null || _6 === void 0 ? void 0 : _6.length) || 0);
+                parsed = { _parseError: 'no-parsed-output', raw: text };
             }
             const updated = analysis;
             updated.resultData = {
@@ -435,5 +747,8 @@ Additional context: ${contextParts.join('; ') || 'none'}
     }
 }
 exports.AIService = AIService;
+AIService._ajv = null;
+AIService._validateFn = null;
+AIService._schema = null;
 exports.default = new AIService();
 //# sourceMappingURL=ai.service.js.map
