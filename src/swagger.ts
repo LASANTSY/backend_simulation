@@ -142,7 +142,24 @@ const swaggerSpec = {
         ],
         responses: { '200': { description: 'Liste des recettes' } },
       },
-      post: { tags: ['revenue'], summary: 'Creer une recette', requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/CreateRevenueDto' } } } }, responses: { '201': { description: 'Recette creee' } } },
+      post: {
+        tags: ['revenue'],
+        summary: 'Creer une recette ou synchroniser les transactions externes (sync-only)',
+        description: 'Deux modes supportés :\n- Sync-only : envoyez { "municipality_id": "..." } (ou municipalityId) pour déclencher uniquement la synchronisation des transactions externes.\n- Create : envoyez le payload complet de création de recette (CreateRevenueDto). Si vous fournissez en plus "municipality_id", une synchronisation sera également exécutée.',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/SyncRevenuesDto' }
+            }
+          }
+        },
+        responses: {
+          '200': { description: 'Synchonisation effectuee (sync-only)', content: { 'application/json': { schema: { $ref: '#/components/schemas/SyncReport' } } } },
+          '400': { description: 'Requete invalide' },
+          '502': { description: 'Erreur lors de la synchronisation des transactions externes' },
+        },
+      },
     },
 
   '/serviceprediction/revenues/{id}': {
@@ -221,6 +238,49 @@ const swaggerSpec = {
       AnalysisResult: { type: 'object', properties: { id: { type: 'string' }, simulationId: { type: 'string' }, resultData: { type: 'object' }, summary: { type: 'string' }, createdAt: { type: 'string', format: 'date-time' } } },
 
       Transaction: { type: 'object', properties: { transactionId: { type: 'string' }, amount: { type: 'number' }, date: { type: 'string', format: 'date' }, status: { type: 'string' } } },
+
+      // Sync report returned when syncing external transactions during revenue creation
+      SyncReport: {
+        type: 'object',
+        properties: {
+          fetched: { type: 'integer', description: 'Nombre de transactions recuperees depuis le provider externe' },
+          inserted: { type: 'integer', description: 'Nombre de nouveaux revenus inseres en base' },
+          duplicates: { type: 'integer', description: 'Nombre de doublons ignores' },
+          errors: { type: 'array', items: { type: 'string' }, description: 'Liste des erreurs rencontrees durant la synchronisation' },
+        },
+      },
+
+      CreateRevenueWithSyncResponse: {
+        type: 'object',
+        properties: {
+          created: { $ref: '#/components/schemas/Revenue' },
+          syncReport: { $ref: '#/components/schemas/SyncReport' }
+        }
+      },
+
+      // DTO to trigger sync-only behavior: only municipality_id is required
+      SyncRevenuesDto: {
+        type: 'object',
+        properties: {
+          municipality_id: { type: 'string', description: 'Identifiant de la municipalité pour laquelle lancer la synchronisation' }
+        },
+        required: ['municipality_id'],
+        example: { municipality_id: '268805260000' }
+      },
+
+      Revenue: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          date: { type: 'string', format: 'date' },
+          amount: { type: 'number' },
+          source: { type: 'string' },
+          category: { type: 'string' },
+          municipalityId: { type: 'string' },
+          parameters: { type: 'object' },
+          createdAt: { type: 'string', format: 'date-time' }
+        }
+      },
 
       TransactionProviderResponse: { type: 'object', properties: { message: { type: 'string' }, status: { type: 'number' }, data: { type: 'array', items: { $ref: '#/components/schemas/Transaction' } } } },
       Marketplace: {
