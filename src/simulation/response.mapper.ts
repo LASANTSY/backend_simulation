@@ -69,6 +69,20 @@ function extractEconomics(sim: AnyObj) {
   return { population_2024: population, gdp_2024_usd: gdpUsd };
 }
 
+function extractDemographics(sim: AnyObj) {
+  const demo = sim?.demographicContext || sim?.demographics || sim?.demography || null;
+  if (!demo) return null;
+  
+  return {
+    country: demo.country ?? null,
+    capital: demo.capital ?? null,
+    region: demo.region ?? null,
+    population: demo.population ?? null,
+    languages: demo.languages ?? [],
+    gini: demo.gini ?? null,
+  };
+}
+
 function extractSeason(sim: AnyObj) {
   const sc = sim?.parameters?.seasonContext || sim?.seasonContext || null;
   return sc?.season ?? null;
@@ -134,6 +148,7 @@ export function buildOptimizedResponse(payload: { simulation: AnyObj; analysis: 
     parameters: extractParameters(sim),
     weather: extractWeather(sim),
     economic: extractEconomics(sim),
+    demographics: extractDemographics(sim),
     analysis_results: {
       analysis_id: analysis?.id ?? null,
       baseline_total: rd?.baselineTotal ?? null,

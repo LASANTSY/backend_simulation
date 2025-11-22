@@ -25,9 +25,11 @@ router.post('/simulations', async (req: Request, res: Response) => {
 
     if ((!weatherContext || !economicContext || !demographicContext || !seasonContext) && dto.city) {
       try {
+        console.log('[Simulation Controller] Fetching contexts for city:', dto.city);
         const info = await placeService.getCityInfo(dto.city);
         const lat = info.lat;
         const lon = info.lon;
+        console.log('[Simulation Controller] City info:', { lat, lon, country: info.address?.country_code });
 
         // Derive a country identifier usable by World Bank/IMF.
         // Nominatim returns address.country_code (alpha-2) or address.country (name).
@@ -46,22 +48,44 @@ router.post('/simulations', async (req: Request, res: Response) => {
             }
           }
         } catch (demErr) {
+          console.warn('[Simulation Controller] Demographics fetch for country resolution failed:', demErr);
           // non-fatal: fall back to raw country name or alpha-2 uppercased
           countryForIndicators = info.address?.country_code ? info.address.country_code.toUpperCase() : info.address?.country;
         }
 
+        console.log('[Simulation Controller] Country for indicators:', countryForIndicators);
         const simPlaceholder: any = { parameters: { location: { lat, lon }, country: countryForIndicators ?? info.address?.country, startDate: dto.startDate } };
         const fetched = await contextService.fetchContextForSimulation(simPlaceholder);
+        console.log('[Simulation Controller] Fetched contexts:', {
+          hasWeather: !!fetched.weather,
+          hasEconomic: !!fetched.economic,
+          hasDemographics: !!fetched.demographics,
+          hasSeason: !!fetched.season,
+          errors: fetched._errors
+        });
         weatherContext = weatherContext ?? fetched.weather ?? null;
         economicContext = economicContext ?? fetched.economic ?? fetched.economy ?? null;
         demographicContext = demographicContext ?? fetched.demographics ?? null;
         seasonContext = seasonContext ?? (fetched.season ? { season: fetched.season } : null);
+        console.log('[Simulation Controller] Final contexts to pass:', {
+          hasWeather: !!weatherContext,
+          hasEconomic: !!economicContext,
+          hasDemographics: !!demographicContext,
+          hasSeason: !!seasonContext
+        });
         // Persist context fetch metadata for troubleshooting
         (req as any)._contextFetchInfo = { cityInfo: info, fetched };
       } catch (e) {
         console.warn('Context auto-fetch failed:', e);
         // continue: simulation can still run with missing contexts (service handles nulls)
       }
+    } else {
+      console.log('[Simulation Controller] Skipping context fetch. City provided:', !!dto.city, 'Contexts already present:', {
+        weather: !!weatherContext,
+        economic: !!economicContext,
+        demographic: !!demographicContext,
+        season: !!seasonContext
+      });
     }
 
     const result = await simulationService.createAndRunSimulation({

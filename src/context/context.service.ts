@@ -228,37 +228,89 @@ export class ContextService {
   }
 
   // Convenience: build a context object for a simulation (attempt to infer country/lat/lon from revenue.parameters)
+  // Each context is fetched independently to maximize data collection even if some APIs fail
   async fetchContextForSimulation(simulation: any) {
-    try {
-      const params = simulation?.parameters || {};
-      const ctx: any = {};
-      if (params.location && params.location.lat && params.location.lon) {
+    const params = simulation?.parameters || {};
+    const ctx: any = {};
+    const errors: string[] = [];
+
+    // Fetch weather context independently
+    if (params.location && params.location.lat && params.location.lon) {
+      try {
         ctx.weather = await this.fetchWeather(params.location.lat, params.location.lon, params.startDate);
+        console.log('[ContextService] Weather context fetched successfully');
+      } catch (err) {
+        console.warn('[ContextService] Weather fetch failed:', String(err));
+        errors.push(`weather: ${String(err)}`);
+        ctx.weather = null;
       }
-      if (params.country) {
-        ctx.economic = {};
-        // example indicators: population (SP.POP.TOTL), gdp (NY.GDP.MKTP.CD)
+    }
+
+    // Fetch economic and demographic contexts independently
+    if (params.country) {
+      ctx.economic = {};
+      
+      // Fetch population indicator
+      try {
         ctx.economic.population = await this.fetchEconomicIndicator(params.country, 'SP.POP.TOTL');
-        ctx.economic.gdp = await this.fetchEconomicIndicator(params.country, 'NY.GDP.MKTP.CD');
-        // Try IMF as an additional source if configured
-        try {
-          ctx.economic.imf_gdp = await this.fetchIMFIndicator(params.country, 'NGDP_RPCH');
-        } catch (e) {
-          // non-fatal, keep worldbank data
-        }
-        ctx.demographics = await this.fetchDemographics(params.country);
+        console.log('[ContextService] Population indicator fetched successfully');
+      } catch (err) {
+        console.warn('[ContextService] Population fetch failed:', String(err));
+        errors.push(`population: ${String(err)}`);
       }
-      // season inference
-      if (params.startDate) {
+      
+      // Fetch GDP indicator
+      try {
+        ctx.economic.gdp = await this.fetchEconomicIndicator(params.country, 'NY.GDP.MKTP.CD');
+        console.log('[ContextService] GDP indicator fetched successfully');
+      } catch (err) {
+        console.warn('[ContextService] GDP fetch failed:', String(err));
+        errors.push(`gdp: ${String(err)}`);
+      }
+      
+      // Try IMF as an additional source if configured
+      try {
+        ctx.economic.imf_gdp = await this.fetchIMFIndicator(params.country, 'NGDP_RPCH');
+        console.log('[ContextService] IMF GDP indicator fetched successfully');
+      } catch (err) {
+        console.warn('[ContextService] IMF GDP fetch failed (non-fatal):', String(err));
+        // non-fatal, keep worldbank data
+      }
+      
+      // Fetch demographics
+      try {
+        ctx.demographics = await this.fetchDemographics(params.country);
+        console.log('[ContextService] Demographics fetched successfully');
+      } catch (err) {
+        console.warn('[ContextService] Demographics fetch failed:', String(err));
+        errors.push(`demographics: ${String(err)}`);
+        ctx.demographics = null;
+      }
+    }
+    
+    // Season inference (always succeeds if startDate is provided)
+    if (params.startDate) {
+      try {
         const d = new Date(params.startDate);
         const month = d.getMonth() + 1;
         const season = month >= 3 && month <= 5 ? 'spring' : month >= 6 && month <= 8 ? 'summer' : month >= 9 && month <= 11 ? 'autumn' : 'winter';
         ctx.season = season;
+        console.log('[ContextService] Season inferred:', season);
+      } catch (err) {
+        console.warn('[ContextService] Season inference failed:', String(err));
+        errors.push(`season: ${String(err)}`);
       }
-      return ctx;
-    } catch (err) {
-      return { _error: String(err) };
     }
+
+    // Include error summary if any errors occurred
+    if (errors.length > 0) {
+      ctx._errors = errors;
+      console.warn(`[ContextService] Context fetch completed with ${errors.length} error(s):`, errors);
+    } else {
+      console.log('[ContextService] All contexts fetched successfully');
+    }
+
+    return ctx;
   }
 }
 

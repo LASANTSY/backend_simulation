@@ -52,6 +52,7 @@ export class CreateSimulationDto {
   seasonContext?: any;
 
   // City used to fetch contexts automatically (required if contexts are not provided)
+  @IsOptional()
   @IsString()
   city?: string;
 }
