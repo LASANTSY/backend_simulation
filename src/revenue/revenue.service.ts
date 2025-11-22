@@ -57,13 +57,13 @@ export class RevenueService {
     const today = new Date().toISOString().slice(0, 10);
     const transformed = txs.map((t: any) => {
       const amount = Number(t?.amount ?? t?.montant ?? 0) || 0;
-      const name = t?.transactionType?.name ?? t?.name ?? 'Unknown';
+      const categoryName = t?.transactionType?.name ?? t?.name ?? 'Unknown';
       const source = t?.paymentMethod?.provider ?? t?.source ?? null;
       const mun = t?.transactionType?.municipality_id ?? municipalityId;
       return {
         amount: Number(amount),
         date: today,
-        category: name,
+        name: categoryName,
         source: source,
         municipalityId: String(mun),
         _raw: t,
@@ -78,17 +78,17 @@ export class RevenueService {
         const rrepo = manager.getRepository(Revenue);
         // Fetch existing revenues for municipality and today's date to minimize comparisons
         const existing = await rrepo.find({ where: { municipalityId, date: today } as any });
-        const existingSet = new Set(existing.map(e => `${e.municipalityId}||${e.category}||${e.source || ''}||${Number(e.amount).toFixed(2)}||${e.date}`));
+        const existingSet = new Set(existing.map(e => `${e.municipalityId}||${e.name}||${e.source || ''}||${Number(e.amount).toFixed(2)}||${e.date}`));
 
         const toInsert: Partial<Revenue>[] = [];
         for (const tx of transformed) {
-          const key = `${tx.municipalityId}||${tx.category}||${tx.source || ''}||${tx.amount.toFixed(2)}||${tx.date}`;
+          const key = `${tx.municipalityId}||${tx.name}||${tx.source || ''}||${tx.amount.toFixed(2)}||${tx.date}`;
           if (existingSet.has(key)) {
             report.duplicates++;
             continue;
           }
           // push to insert and add to existingSet to avoid duplicates within the batch
-          toInsert.push({ date: tx.date, amount: tx.amount, source: tx.source, category: tx.category, municipalityId: tx.municipalityId, parameters: { external: true } });
+          toInsert.push({ date: tx.date, amount: tx.amount, source: tx.source, name: tx.name, municipalityId: tx.municipalityId, parameters: { external: true } });
           existingSet.add(key);
         }
 

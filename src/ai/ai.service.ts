@@ -317,6 +317,12 @@ export class AIService {
     const contextParts: string[] = [];
     const detailedInstructions: string[] = [];
     
+    // revenue category context for enhanced precision
+    if (extraContext.revenue) {
+      contextParts.push(`Catégorie de revenu: ${extraContext.revenue.category || 'Non spécifiée'}`);
+      detailedInstructions.push(`- Type de revenu: "${extraContext.revenue.category}" (montant initial: ${extraContext.revenue.originalAmount}, nouveau montant: ${extraContext.revenue.newAmount}). Analysez comment cette catégorie spécifique de revenu est influencée par les contextes saisonniers, météorologiques et économiques. Considérez les particularités de ce type de revenu (périodicité naturelle, sensibilité aux saisons, dépendance au contexte économique local).`);
+    }
+    
     // time context with specific guidance
     if (extraContext.time) {
       contextParts.push(`Contexte temporel: ${JSON.stringify(extraContext.time)}`);

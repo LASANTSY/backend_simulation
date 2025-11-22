@@ -59,7 +59,7 @@ router.post('/revenues', async (req: Request, res: Response) => {
   try {
     const body = req.body || {};
     const municipalityIdFromBody = body.municipality_id || body.municipalityId || (body.parameters && body.parameters.municipality_id) || undefined;
-    const isSyncOnly = !!(municipalityIdFromBody && !(body.amount || body.date || body.category));
+    const isSyncOnly = !!(municipalityIdFromBody && !(body.amount || body.date || body.name));
 
     if (isSyncOnly) {
       console.info('[Revenues POST] sync-only request detected for municipalityId=', municipalityIdFromBody);

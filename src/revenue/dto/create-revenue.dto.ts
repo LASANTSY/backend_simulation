@@ -8,8 +8,8 @@ export class CreateRevenueDto {
   @IsDateString({}, { message: 'date must be an ISO date string' })
   date: string;
 
-  @IsString({ message: 'category must be a string' })
-  category: string;
+  @IsString({ message: 'name must be a string' })
+  name: string;
 
   @IsOptional()
   @IsString({ message: 'source must be a string' })

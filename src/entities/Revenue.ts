@@ -15,7 +15,7 @@ export class Revenue {
   source?: string;
 
   @Column({ nullable: true })
-  category?: string;
+  name?: string;
 
   @Column({ type: 'jsonb', nullable: true })
   parameters?: any;

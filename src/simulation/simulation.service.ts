@@ -34,6 +34,9 @@ export class SimulationService {
   }) {
     const revenue = await this.revenueRepo.findOneBy({ id: opts.revenueId });
     if (!revenue) throw new Error('Revenue not found');
+    
+    // Extract revenue category name for enhanced AI context
+    const revenueCategoryName = revenue.name || 'Unknown';
 
     // create simulation record
     const sim = this.simulationRepo.create({
@@ -160,6 +163,12 @@ export class SimulationService {
     };
 
     const extraContext = {
+      revenue: {
+        id: opts.revenueId,
+        category: revenueCategoryName,
+        originalAmount: Number(revenue.amount),
+        newAmount: opts.newAmount,
+      },
       time: { 
         period: opts.durationMonths,
         startDate: opts.startDate || new Date().toISOString().slice(0, 10),
