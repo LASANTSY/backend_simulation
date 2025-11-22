@@ -38,5 +38,5 @@ services:
     image: redis:7-alpine
     container_name: mobil-redis
     ports:
-      - '6379:6379'
+      - '7000:6379'
     restart: unless-stopped

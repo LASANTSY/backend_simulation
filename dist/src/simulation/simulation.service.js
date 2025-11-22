@@ -132,7 +132,8 @@ class SimulationService {
         catch (e) {
             savedSim.status = 'completed';
             await this.simulationRepo.save(savedSim);
-            return { simulation: savedSim, analysis: savedAnalysis, aiError: String(e) };
+            const reloaded = await this.analysisRepo.findOne({ where: { id: savedAnalysis.id }, relations: ['simulation'] });
+            return { simulation: savedSim, analysis: reloaded !== null && reloaded !== void 0 ? reloaded : savedAnalysis, aiError: String(e) };
         }
     }
     async findAllSimulations(municipalityId) {

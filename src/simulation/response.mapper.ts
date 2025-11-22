@@ -91,7 +91,24 @@ function extractParameters(sim: AnyObj) {
 function extractAi(analysis: AnyObj) {
   const rd = analysis?.resultData || {};
   const ai = rd?.aiAnalysis || null;
-  if (!ai && !rd?.aiModel) return null;
+  // Return null only if there's no AI data at all AND no error information
+  if (!ai && !rd?.aiModel && !rd?.aiError) return null;
+  
+  // If there's an error, return error information
+  if (rd?.aiError) {
+    return {
+      model: rd?.aiModel ?? null,
+      error: rd?.aiError,
+      error_details: rd?.aiErrorDetailed ?? null,
+      confidence: null,
+      prediction_summary: null,
+      interpretation: null,
+      risks: [],
+      opportunities: [],
+      recommendations: [],
+    };
+  }
+  
   const prediction_summary = ai?.prediction?.summary ?? null;
   const key_values = ai?.prediction?.key_values ?? ai?.key_values ?? undefined;
   return {

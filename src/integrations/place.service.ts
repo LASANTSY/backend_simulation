@@ -52,30 +52,57 @@ export class PlaceService {
 
   // Get richer city info including lat/lon and address object when available
   async getCityInfo(city: string): Promise<{ lat: number; lon: number; display_name?: string; address?: any }> {
-    try {
-      const resp = await axios.get(this.endpoint, {
-        params: {
-          q: city,
-          format: 'json',
-          limit: 1,
-          addressdetails: 1,
-        },
-        timeout: this.timeoutMs,
-        headers: {
-          'User-Agent': 'mobilisation-backend/1.0 (contact@example.com)'
-        }
-      });
+    // Retry a few times for transient network/server errors, and provide richer error info
+    const maxAttempts = 3;
+    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    let lastErr: any = null;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const resp = await axios.get(this.endpoint, {
+          params: {
+            q: city,
+            format: 'json',
+            limit: 1,
+            addressdetails: 1,
+          },
+          timeout: this.timeoutMs,
+          headers: {
+            'User-Agent': 'mobilisation-backend/1.0 (contact@example.com)'
+          }
+        });
 
-      const data = resp.data;
-      if (!Array.isArray(data) || data.length === 0) throw new Error('not_found');
-      const first = data[0];
-      const lat = parseFloat(first.lat);
-      const lon = parseFloat(first.lon);
-      return { lat, lon, display_name: first.display_name, address: first.address };
-    } catch (err: any) {
-      if (err?.message === 'not_found') throw err;
-      if (err?.code === 'ECONNABORTED') throw new Error('timeout');
-      throw new Error('service_error');
+        const data = resp.data;
+        if (!Array.isArray(data) || data.length === 0) throw new Error('not_found');
+        const first = data[0];
+        const lat = parseFloat(first.lat);
+        const lon = parseFloat(first.lon);
+        return { lat, lon, display_name: first.display_name, address: first.address };
+      } catch (err: any) {
+        lastErr = err;
+        if (err?.message === 'not_found') throw err;
+        if (err?.code === 'ECONNABORTED') {
+          // timeout: if last attempt, surface timeout, else retry
+          if (attempt === maxAttempts) throw new Error('timeout');
+          await sleep(200 * attempt);
+          continue;
+        }
+
+        const status = err?.response?.status;
+        // Retry on 5xx server errors
+        if (status && status >= 500 && attempt < maxAttempts) {
+          await sleep(250 * attempt);
+          continue;
+        }
+
+        // Non-retriable or final attempt: include response details when present
+        const statusInfo = status ? `status=${status}` : `code=${err?.code ?? 'unknown'}`;
+        const body = err?.response?.data ? ` body=${JSON.stringify(err.response.data)}` : '';
+        const message = `service_error: ${err?.message ?? 'unknown'} (${statusInfo})${body}`;
+        throw new Error(message);
+      }
     }
+
+    // If we exit loop without returning, throw an informative error
+    throw new Error(`service_error: ${lastErr?.message ?? 'unknown'}`);
   }
 }

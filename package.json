@@ -24,7 +24,7 @@
     "@bull-board/api": "^4.5.0",
     "@bull-board/express": "^4.5.0",
     "@bull-board/ui": "^4.5.0",
-    "@google/genai": "^1.27.0",
+    "@google/genai": "^1.30.0",
     "@nestjs/bullmq": "^11.0.4",
     "@nestjs/common": "^11.1.7",
     "@nestjs/core": "^11.1.7",

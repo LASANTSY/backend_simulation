@@ -128,13 +128,30 @@ export class SimulationService {
 
     // Build extraContext for AI enrichment - include all available contexts
     const seasonFromParams = (savedSim.parameters as any)?.seasonContext?.season;
-    const season = (() => {
-      // Priority: explicit seasonContext > inferred from startDate
-      if (seasonFromParams) return seasonFromParams;
-      const d = new Date(opts.startDate || new Date().toISOString().slice(0, 10));
-      const month = d.getMonth() + 1;
+    
+    // Calculate seasons covered by the simulation period
+    const getSeason = (month: number) => {
       return month >= 3 && month <= 5 ? 'spring' : month >= 6 && month <= 8 ? 'summer' : month >= 9 && month <= 11 ? 'autumn' : 'winter';
-    })();
+    };
+
+    const startDate = new Date(opts.startDate || new Date().toISOString().slice(0, 10));
+    const startMonth = startDate.getMonth() + 1;
+    const startSeason = getSeason(startMonth);
+    
+    // Calculate all seasons covered during the simulation
+    const seasonsCovered = new Set<string>();
+    for (let i = 0; i < opts.durationMonths; i++) {
+      const currentDate = new Date(startDate);
+      currentDate.setMonth(startDate.getMonth() + i);
+      const monthNum = currentDate.getMonth() + 1;
+      seasonsCovered.add(getSeason(monthNum));
+    }
+    
+    // Calculate end date
+    const endDate = new Date(startDate);
+    endDate.setMonth(startDate.getMonth() + opts.durationMonths - 1);
+    const endMonth = endDate.getMonth() + 1;
+    const endSeason = getSeason(endMonth);
 
     const timeTrend = {
       percentChange,
@@ -144,10 +161,15 @@ export class SimulationService {
 
     const extraContext = {
       time: { 
-        period: opts.durationMonths, 
-        season, 
+        period: opts.durationMonths,
+        startDate: opts.startDate || new Date().toISOString().slice(0, 10),
+        endDate: endDate.toISOString().slice(0, 10),
+        startSeason,
+        endSeason,
+        seasonsCovered: Array.from(seasonsCovered),
+        // Keep backward compatibility with single 'season' field
+        season: seasonFromParams || startSeason,
         trend: timeTrend,
-        startDate: opts.startDate || new Date().toISOString().slice(0, 10)
       },
       weather: opts.weatherContext || savedSim.weatherContext || null,
       economy: opts.economicContext || savedSim.economicContext || null,
@@ -170,10 +192,13 @@ export class SimulationService {
 
       return { simulation: savedSim, analysis: enriched };
     } catch (e) {
-      // If AI enrichment fails, still mark simulation completed and return base analysis + error
+      // If AI enrichment fails, still mark simulation completed. Reload the analysis
+      // from the DB so any aiError or partial aiAnalysis saved by the AI service
+      // is returned to the caller instead of the original `savedAnalysis`.
       savedSim.status = 'completed';
       await this.simulationRepo.save(savedSim as any);
-      return { simulation: savedSim, analysis: savedAnalysis, aiError: String(e) };
+      const reloaded = await this.analysisRepo.findOne({ where: { id: (savedAnalysis as any).id }, relations: ['simulation'] });
+      return { simulation: savedSim, analysis: reloaded ?? savedAnalysis, aiError: String(e) };
     }
   }
 

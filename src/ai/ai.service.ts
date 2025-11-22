@@ -14,7 +14,7 @@ import * as dotenv from 'dotenv';
 
 dotenv.config();
 
-const AI_PROVIDER = process.env.AI_PROVIDER || 'openai';
+const AI_PROVIDER = process.env.AI_PROVIDER || 'gemini';
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
 const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4';
 const OPENAI_FALLBACK_MODEL = process.env.OPENAI_FALLBACK_MODEL || 'gpt-3.5-turbo';
@@ -320,19 +320,32 @@ export class AIService {
     // time context with specific guidance
     if (extraContext.time) {
       contextParts.push(`Contexte temporel: ${JSON.stringify(extraContext.time)}`);
-      const season = extraContext.time.season || (sim as any).parameters?.seasonContext?.season;
-      if (season) {
-        detailedInstructions.push(`- Saison: ${season}. Analysez comment cette saison affecte les revenus (ex: haute/basse saison touristique, périodes de récolte, variations saisonnières de consommation).`);
+      
+      // Enhanced seasonal analysis for multi-month simulations
+      const seasonsCovered = extraContext.time.seasonsCovered || [extraContext.time.season];
+      const startSeason = extraContext.time.startSeason || extraContext.time.season;
+      const endSeason = extraContext.time.endSeason || extraContext.time.season;
+      const period = extraContext.time.period || 1;
+      
+      if (seasonsCovered.length > 1) {
+        detailedInstructions.push(`- Période multi-saisonnière (${period} mois): Du ${startSeason} au ${endSeason}, couvrant ${seasonsCovered.join(', ')}. Analysez comment CHAQUE saison traversée affecte différemment les revenus (variations saisonnières de demande, cycles touristiques, périodes agricoles, comportements de consommation selon les saisons).`);
+      } else if (startSeason) {
+        detailedInstructions.push(`- Saison unique: ${startSeason} (${period} mois). Analysez l'impact de cette saison sur les revenus (haute/basse saison touristique, périodes de récolte, variations de consommation).`);
       }
+      
+      if (extraContext.time.startDate && extraContext.time.endDate) {
+        detailedInstructions.push(`- Période complète: Du ${extraContext.time.startDate} au ${extraContext.time.endDate}. Considérez les événements calendaires, fêtes, périodes fiscales qui pourraient influencer les revenus durant cette période.`);
+      }
+      
       if (extraContext.time.trend) {
-        detailedInstructions.push(`- Tendance: variation de ${extraContext.time.trend.percentChange?.toFixed(2) || 'N/A'}%. Expliquez si cette tendance est soutenable compte tenu du contexte.`);
+        detailedInstructions.push(`- Tendance globale: variation de ${extraContext.time.trend.percentChange?.toFixed(2) || 'N/A'}% sur la période. Expliquez si cette tendance est soutenable compte tenu des contextes saisonniers et économiques.`);
       }
     }
     
     // weather/climate with impact analysis
     if (extraContext.weather) {
       contextParts.push(`Météo/Climat: ${JSON.stringify(extraContext.weather)}`);
-      detailedInstructions.push(`- Conditions météorologiques: Analysez l'impact potentiel sur les activités économiques (agriculture, tourisme, commerce). Identifiez les risques climatiques (sécheresse, inondations, canicule) et leurs probabilités.`);
+      detailedInstructions.push(`- Conditions météorologiques actuelles: Analysez l'impact potentiel sur les activités économiques (agriculture, tourisme, commerce). IMPORTANT: Considérez comment ces conditions peuvent évoluer sur toute la durée de la simulation et leur impact cumulé. Identifiez les risques climatiques saisonniers (sécheresse estivale, pluies, températures extrêmes).`);
     }
     
     // economic context with indicators
@@ -342,14 +355,14 @@ export class AIService {
       const gdp = ecoData.gdp || ecoData.imf_gdp;
       const population = ecoData.population;
       if (gdp || population) {
-        detailedInstructions.push(`- Indicateurs économiques: PIB=${gdp || 'N/A'}, Population=${population || 'N/A'}. Évaluez l'impact du contexte macroéconomique sur la projection. Considérez l'inflation, le pouvoir d'achat, et les cycles économiques.`);
+        detailedInstructions.push(`- Indicateurs économiques: PIB=${gdp || 'N/A'}, Population=${population || 'N/A'}. Évaluez l'impact du contexte macroéconomique sur la projection. Considérez l'inflation, le pouvoir d'achat, les cycles économiques, et leur évolution probable sur la période de simulation.`);
       }
     }
     
     // demographic context
     if (extraContext.demography) {
       contextParts.push(`Contexte démographique: ${JSON.stringify(extraContext.demography)}`);
-      detailedInstructions.push(`- Démographie: Analysez comment la structure démographique (densité, âge moyen, croissance) influence les revenus projetés. Identifiez les segments de population cibles et leur capacité contributive.`);
+      detailedInstructions.push(`- Démographie: Analysez comment la structure démographique (densité, âge moyen, croissance) influence les revenus projetés sur toute la période. Identifiez les segments de population cibles et leur capacité contributive selon les saisons.`);
     }
 
     // Season from simulation parameters if not in extraContext
@@ -363,7 +376,7 @@ export class AIService {
 
     const instruction = `Vous êtes un expert financier/analyste capable d'intégrer le contexte temporel, météorologique, économique et démographique dans vos analyses. 
 
-MISSION: Analysez cette simulation de revenus en tenant compte OBLIGATOIREMENT des contextes fournis ci-dessous.
+MISSION: Analysez cette simulation de revenus en tenant compte OBLIGATOIREMENT des contextes fournis ci-dessous, EN PARTICULIER les variations saisonnières sur TOUTE LA DURÉE de la simulation.
 
 CONTEXTES À INTÉGRER:
 ${detailedInstructions.length > 0 ? detailedInstructions.join('\n') : '- Aucun contexte spécifique fourni. Basez votre analyse uniquement sur les données de simulation.'}
@@ -371,10 +384,10 @@ ${detailedInstructions.length > 0 ? detailedInstructions.join('\n') : '- Aucun c
 INSTRUCTIONS DE SORTIE:
 Produisez UN OBJET JSON structuré (sans Markdown, sans backticks) contenant:
 - prediction: résumé chiffré avec valeurs clés et horizons temporels
-- interpretation: explication détaillée (4-7 phrases) montrant EXPLICITEMENT comment les contextes (saison, météo, économie, démographie) influencent la projection
-- risks: facteurs de risque LIÉS AUX CONTEXTES (ex: risque climatique si météo défavorable, risque économique si récession, risque saisonnier)
-- opportunities: opportunités identifiées À PARTIR DES CONTEXTES (ex: exploiter la haute saison, profiter de la croissance démographique)
-- recommendations: actions concrètes priorisant l'adaptation aux contextes identifiés
+- interpretation: explication détaillée (4-7 phrases) montrant EXPLICITEMENT comment les contextes (saisons traversées, météo, économie, démographie) influencent la projection sur TOUTE LA PÉRIODE
+- risks: facteurs de risque LIÉS AUX CONTEXTES et à leur évolution temporelle (ex: risque climatique selon les saisons, risque économique, risques saisonniers spécifiques)
+- opportunities: opportunités identifiées À PARTIR DES CONTEXTES et des variations saisonnières (ex: exploiter les hautes saisons, profiter de la croissance démographique)
+- recommendations: actions concrètes priorisant l'adaptation aux contextes et aux cycles saisonniers
 - confidence: score 0-1 basé sur la qualité/disponibilité des données contextuelles
 - metadata: résumé des contextes utilisés (time, weather, economy, demography avec valeurs non-null)
 
@@ -436,7 +449,7 @@ ${contextParts.join('\n') || 'Aucun contexte additionnel'}
             { role: 'system', content: 'You produce only JSON responses when asked.' },
             { role: 'user', content: prompt },
           ],
-          max_tokens: 800,
+          max_tokens: 2048,
           temperature: 0.2,
         });
       };
@@ -460,6 +473,9 @@ ${contextParts.join('\n') || 'Aucun contexte additionnel'}
             updatedErrAnalysis.resultData = {
               ...updatedErrAnalysis.resultData,
               aiError: textErr,
+              aiProvider: AI_PROVIDER,
+              aiModel: OPENAI_FALLBACK_MODEL,
+              aiAt: new Date().toISOString(),
             } as any;
             await this.analysisRepo.save(updatedErrAnalysis as any);
             throw new Error(`AI provider error: ${textErr}`);
@@ -470,6 +486,9 @@ ${contextParts.join('\n') || 'Aucun contexte additionnel'}
           updatedErrAnalysis.resultData = {
             ...updatedErrAnalysis.resultData,
             aiError: textErr,
+            aiProvider: AI_PROVIDER,
+            aiModel: OPENAI_MODEL,
+            aiAt: new Date().toISOString(),
           } as any;
           await this.analysisRepo.save(updatedErrAnalysis as any);
           throw err;
@@ -486,7 +505,7 @@ ${contextParts.join('\n') || 'Aucun contexte additionnel'}
             { role: 'system', content: 'You produce only JSON responses when asked.' },
             { role: 'user', content: p },
           ],
-          max_tokens: 800,
+          max_tokens: 2048,
           temperature: 0.2,
         });
         return resp2.choices?.[0]?.message?.content ?? resp2.choices?.[0]?.text ?? '';
@@ -521,6 +540,9 @@ ${contextParts.join('\n') || 'Aucun contexte additionnel'}
         updatedErrAnalysis.resultData = {
           ...updatedErrAnalysis.resultData,
           aiError: textErr,
+          aiProvider: AI_PROVIDER,
+          aiModel: GEMINI_MODEL,
+          aiAt: new Date().toISOString(),
         } as any;
         await this.analysisRepo.save(updatedErrAnalysis as any);
         throw new Error(textErr);
@@ -558,7 +580,7 @@ ${contextParts.join('\n') || 'Aucun contexte additionnel'}
                 parent: `projects/${PROJECT}`,
                 contents: [{ parts: [{ text: finalPrompt }] }],
                 // Do NOT include responseMimeType here: some Generative Language endpoints reject it.
-                generationConfig: { maxOutputTokens: 800, temperature: 0.2 }
+                generationConfig: { maxOutputTokens: 2048, temperature: 0.2 }
               });
               const extracted = AIService.extractGeminiTextFromData(resp);
               if (extracted) {
@@ -592,7 +614,7 @@ ${contextParts.join('\n') || 'Aucun contexte additionnel'}
                         parent: `projects/${PROJECT}`,
                         contents: [{ parts: [{ text: finalPrompt }] }],
                         // Omit responseMimeType to avoid INVALID_ARGUMENT from REST API
-                        generationConfig: { maxOutputTokens: 800, temperature: 0.2 }
+                        generationConfig: { maxOutputTokens: 2048, temperature: 0.2 }
                       });
                       const extracted2 = AIService.extractGeminiTextFromData(resp2);
                       if (extracted2) {
@@ -667,7 +689,7 @@ ${contextParts.join('\n') || 'Aucun contexte additionnel'}
                 const maybeResp = await client[m]({
                   model: GEMINI_MODEL,
                   contents: [{ parts: [{ text: finalPrompt }] }],
-                  generationConfig: { maxOutputTokens: 800, temperature: 0.2 }
+                  generationConfig: { maxOutputTokens: 2048, temperature: 0.2 }
                 });
                 // robust extraction to avoid passing objects like { role: 'model' }
                 const extracted = AIService.extractGeminiTextFromData(maybeResp) || (maybeResp?.choices?.[0]?.message?.content ?? null);
@@ -699,11 +721,11 @@ ${contextParts.join('\n') || 'Aucun contexte additionnel'}
         const tryPostVariants = async (baseUrl: string, headers: any, p: string) => {
           const variants = [
             // Preferred, documented shape
-            { body: { contents: [{ parts: [{ text: p }] }], generationConfig: { maxOutputTokens: 800, temperature: 0.2 } }, name: 'contents+generationConfig' },
+            { body: { contents: [{ parts: [{ text: p }] }], generationConfig: { maxOutputTokens: 2048, temperature: 0.2 } }, name: 'contents+generationConfig' },
             // Some older endpoints/clients used a `prompt.text` shape; try with generationConfig if accepted
-            { body: { prompt: { text: p }, generationConfig: { maxOutputTokens: 800, temperature: 0.2 } }, name: 'prompt.text+generationConfig' },
-            { body: { input: p, maxOutputTokens: 800, temperature: 0.2 }, name: 'input' },
-            { body: { instances: [{ input: p }], parameters: { maxOutputTokens: 800, temperature: 0.2 } }, name: 'instances+parameters' },
+            { body: { prompt: { text: p }, generationConfig: { maxOutputTokens: 2048, temperature: 0.2 } }, name: 'prompt.text+generationConfig' },
+            { body: { input: p, maxOutputTokens: 2048, temperature: 0.2 }, name: 'input' },
+            { body: { instances: [{ input: p }], parameters: { maxOutputTokens: 2048, temperature: 0.2 } }, name: 'instances+parameters' },
             { body: { messages: [{ role: 'user', content: p }] }, name: 'messages' },
           ];
           let lastErr: any = null;
@@ -768,6 +790,9 @@ ${contextParts.join('\n') || 'Aucun contexte additionnel'}
             ...updatedErrAnalysis.resultData,
             aiError: err?.message || String(err),
             aiErrorDetailed: { status, data },
+            aiProvider: AI_PROVIDER,
+            aiModel: usedModel,
+            aiAt: new Date().toISOString(),
           } as any;
           await this.analysisRepo.save(updatedErrAnalysis as any);
         }
@@ -783,6 +808,9 @@ ${contextParts.join('\n') || 'Aucun contexte additionnel'}
           ...updatedErrAnalysis.resultData,
           aiError: textErr,
           aiErrorDetailed: { status, data },
+          aiProvider: AI_PROVIDER,
+          aiModel: usedModel || GEMINI_MODEL,
+          aiAt: new Date().toISOString(),
         } as any;
         await this.analysisRepo.save(updatedErrAnalysis as any);
         if (status === 404) {
@@ -800,7 +828,7 @@ ${contextParts.join('\n') || 'Aucun contexte additionnel'}
           const headers: any = {};
           if (!useKeyParam) headers['Authorization'] = `Bearer ${GEMINI_API_KEY}`;
           // Use the documented REST payload shape: contents[].parts[].text + generationConfig
-          const res = await axios.post(url, { contents: [{ parts: [{ text: p }] }], generationConfig: { maxOutputTokens: 800, temperature: 0.2 } }, { headers });
+          const res = await axios.post(url, { contents: [{ parts: [{ text: p }] }], generationConfig: { maxOutputTokens: 2048, temperature: 0.2 } }, { headers });
           const extracted = AIService.extractGeminiTextFromData(res.data);
           return AIService.cleanLLMText(extracted || '');
         };
