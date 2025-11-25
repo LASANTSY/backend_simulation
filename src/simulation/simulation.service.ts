@@ -31,6 +31,7 @@ export class SimulationService {
     economicContext?: any;
     demographicContext?: any;
     seasonContext?: any;
+    city?: string;  // ✅ Ajouter city dans les options
   }) {
     const revenue = await this.revenueRepo.findOneBy({ id: opts.revenueId });
     if (!revenue) throw new Error('Revenue not found');
@@ -50,6 +51,8 @@ export class SimulationService {
         note: opts.note,
         devise: opts.devise ?? process.env.DEFAULT_CURRENCY ?? 'MGA',
         seasonContext: opts.seasonContext ?? null,
+        city: opts.city ?? null,  // ✅ Stocker la ville depuis la requête HTTP
+        recipeType: revenueCategoryName,  // ✅ Stocker le type de recette depuis revenue.name
       },
       weatherContext: opts.weatherContext ?? null,
       economicContext: opts.economicContext ?? null,

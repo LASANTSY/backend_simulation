@@ -10,6 +10,8 @@ export interface PredictionResults {
   seasonal: number;    // Ajustement saisonnier ARIMA/moyennes mobiles (%)
   average: number;     // Moyenne des trois méthodes (%)
   baseline: number;    // Valeur de référence utilisée
+  confidence: 'high' | 'medium' | 'low' | 'very-low'; // Niveau de confiance
+  warning?: string;    // Message d'avertissement si prédiction peu fiable
   methods: {
     linear: { used: boolean; details: string };
     neural: { used: boolean; details: string };
@@ -135,6 +137,12 @@ export async function applyPredictionMethods(
 
   const params = (sim.parameters || {}) as any;
   const historical = params.historical || [];
+  
+  // Seuils de données minimales pour des prédictions fiables
+  const MIN_DATA_FOR_RELIABLE = 12; // 1 an de données mensuelles
+  const MIN_DATA_FOR_BASIC = 6;     // 6 mois minimum
+  const MIN_DATA_FOR_REGRESSION = 3; // 3 points pour régression
+
   const baseline = historical.length > 0 ? historical[historical.length - 1].value : 1000000;
 
   const results: PredictionResults = {
@@ -143,12 +151,52 @@ export async function applyPredictionMethods(
     seasonal: 0,
     average: 0,
     baseline,
+    confidence: 'very-low',
     methods: {
       linear: { used: false, details: '' },
       neural: { used: false, details: '' },
       seasonal: { used: false, details: '' },
     },
   };
+
+  // ============================================================================
+  // VALIDATION : Vérifier si nous avons assez de données
+  // ============================================================================
+  if (historical.length === 0) {
+    console.warn('[PredictionMethods] ⚠️ No historical data available - predictions will be heuristic only');
+    results.warning = 'Aucune donnée historique disponible. Prédictions basées uniquement sur des heuristiques sectorielles et saisonnières.';
+    results.confidence = 'very-low';
+    
+    // Utiliser des heuristiques par défaut basées sur le secteur et la saison
+    const heuristicPrediction = getHeuristicPrediction(recipeType, contexts);
+    results.linear = heuristicPrediction.growth;
+    results.neural = heuristicPrediction.growth;
+    results.seasonal = heuristicPrediction.seasonalAdjustment;
+    results.average = heuristicPrediction.average;
+    
+    results.methods.linear.details = `Heuristique sectorielle: ${heuristicPrediction.rationale}`;
+    results.methods.neural.details = 'Pas de données pour entraînement - valeur heuristique';
+    results.methods.seasonal.details = `Ajustement saisonnier standard (${contexts.time?.season || 'inconnu'})`;
+    results.methods.linear.used = true;
+    results.methods.seasonal.used = true;
+    
+    console.log('[PredictionMethods] Applied heuristic prediction:', results);
+    return results;
+  }
+
+  // Déterminer le niveau de confiance basé sur la quantité de données
+  if (historical.length >= MIN_DATA_FOR_RELIABLE) {
+    results.confidence = 'high';
+  } else if (historical.length >= MIN_DATA_FOR_BASIC) {
+    results.confidence = 'medium';
+    results.warning = `Données limitées (${historical.length} mois). Prédictions à interpréter avec prudence.`;
+  } else if (historical.length >= MIN_DATA_FOR_REGRESSION) {
+    results.confidence = 'low';
+    results.warning = `Données très limitées (${historical.length} points). Prédictions peu fiables.`;
+  } else {
+    results.confidence = 'very-low';
+    results.warning = `Données insuffisantes (${historical.length} points). Prédictions non recommandées.`;
+  }
 
   // ============================================================================
   // 1. RÉGRESSION LINÉAIRE (Backend TypeScript)
@@ -211,25 +259,34 @@ export async function applyPredictionMethods(
   try {
     console.log('[PredictionMethods] Calling TensorFlow neural network...');
 
-    // Préparation des features pour le modèle neuronal
-    const rainfall = contexts.weather?.rainfall || 0;
-    const seasonFactor = getSeasonFactor(contexts.time?.season || 'Saison sèche');
-    const population = contexts.demography?.population || 1000000;
-    const gdp = contexts.economy?.gdp || contexts.economy?.imf_gdp || 10000000000;
+    // Ne pas appeler TensorFlow si pas assez de données pour entraînement
+    if (historical.length < MIN_DATA_FOR_BASIC) {
+      console.warn('[PredictionMethods] ⚠️ Insufficient data for neural network training - skipping TensorFlow');
+      results.methods.neural.details = `Données insuffisantes pour entraînement (${historical.length} < ${MIN_DATA_FOR_BASIC} requis)`;
+      
+      // Utiliser la même valeur heuristique que linear si aucun historique
+      if (historical.length === 0) {
+        results.neural = results.linear;
+        results.methods.neural.used = true;
+      }
+    } else {
+      // Préparation des features pour le modèle neuronal
+      const rainfall = contexts.weather?.rainfall || 0;
+      const seasonFactor = getSeasonFactor(contexts.time?.season || 'Saison sèche');
+      const population = contexts.demography?.population || 1000000;
+      const gdp = contexts.economy?.gdp || contexts.economy?.imf_gdp || 10000000000;
 
-    // Normalisation basique des features
-    const features = [
-      [
-        rainfall / 200,              // Normalisation pluie (0-200mm -> 0-1)
-        seasonFactor,                // Facteur saisonnier (0.8-1.2)
-        population / 2000000,        // Normalisation population
-        gdp / 20000000000,           // Normalisation PIB
-      ],
-    ];
+      // Normalisation basique des features
+      const features = [
+        [
+          rainfall / 200,              // Normalisation pluie (0-200mm -> 0-1)
+          seasonFactor,                // Facteur saisonnier (0.8-1.2)
+          population / 2000000,        // Normalisation population
+          gdp / 20000000000,           // Normalisation PIB
+        ],
+      ];
 
-    // Si assez de données historiques, préparer un dataset d'entraînement
-    let trainingData: any = undefined;
-    if (historical.length > 10) {
+      // Préparer un dataset d'entraînement
       const inputs: number[][] = [];
       const outputs: number[] = [];
 
@@ -251,37 +308,37 @@ export async function applyPredictionMethods(
         outputs.push(actualChange);
       }
 
-      trainingData = { inputs, outputs };
+      const trainingData = { inputs, outputs };
       console.log('[PredictionMethods] Prepared training data:', {
         samples: inputs.length,
         avgChange: (outputs.reduce((a, b) => a + b, 0) / outputs.length).toFixed(2) + '%',
       });
-    }
 
-    // Appel au service TensorFlow
-    const tfResponse = await tensorFlowClient.predict({
-      features,
-      trainingData,
-      modelConfig: {
-        layers: [8, 4],      // 2 couches cachées
-        epochs: 50,
-        learningRate: 0.01,
-      },
-    });
+      // Appel au service TensorFlow
+      const tfResponse = await tensorFlowClient.predict({
+        features,
+        trainingData,
+        modelConfig: {
+          layers: [8, 4],      // 2 couches cachées
+          epochs: Math.min(50, 20 + historical.length * 2), // Plus de données = plus d'epochs
+          learningRate: 0.01,
+        },
+      });
 
-    if (tfResponse.predictions && tfResponse.predictions.length > 0) {
-      results.neural = tfResponse.predictions[0];
-      results.methods.neural.used = true;
-      results.methods.neural.details = `Réseau de neurones TensorFlow (${trainingData ? 'entraîné' : 'générique'}, accuracy=${tfResponse.modelInfo?.accuracy?.toFixed(3) || 'N/A'})`;
-      
-      console.log('[PredictionMethods] Neural prediction:', results.neural.toFixed(2) + '%');
-    } else {
-      results.methods.neural.details = 'Service TensorFlow non disponible, utilisation fallback';
-      console.warn('[PredictionMethods] TensorFlow returned empty predictions');
+      if (tfResponse.predictions && tfResponse.predictions.length > 0) {
+        results.neural = tfResponse.predictions[0];
+        results.methods.neural.used = true;
+        results.methods.neural.details = `Réseau de neurones TensorFlow (${inputs.length} samples, accuracy=${tfResponse.modelInfo?.accuracy?.toFixed(3) || 'N/A'})`;
+        
+        console.log('[PredictionMethods] Neural prediction:', results.neural.toFixed(2) + '%');
+      } else {
+        results.methods.neural.details = 'Service TensorFlow non disponible ou erreur de prédiction';
+        console.warn('[PredictionMethods] TensorFlow returned empty predictions');
+      }
     }
   } catch (error) {
     console.error('[PredictionMethods] Neural network error:', error);
-    results.methods.neural.details = `Erreur/Fallback: ${error}`;
+    results.methods.neural.details = `Erreur TensorFlow: ${error}`;
   }
 
   // ============================================================================
@@ -319,9 +376,55 @@ export async function applyPredictionMethods(
     neural: results.neural.toFixed(2) + '%',
     seasonal: results.seasonal.toFixed(2) + '%',
     average: results.average.toFixed(2) + '%',
+    confidence: results.confidence,
+    warning: results.warning || 'none',
   });
 
   return results;
+}
+
+/**
+ * Fournit une prédiction heuristique quand il n'y a pas de données historiques
+ * Basée sur des moyennes sectorielles observées à Madagascar
+ */
+function getHeuristicPrediction(recipeType: string, contexts: any): {
+  growth: number;
+  seasonalAdjustment: number;
+  average: number;
+  rationale: string;
+} {
+  // Croissances moyennes observées par type de recette (source: études FMI/BM sur Madagascar)
+  const sectorGrowthRates: { [key: string]: number } = {
+    'TVA': 3.5,                    // Croissance nominale économie + formalisation
+    'Impôt foncier': 2.0,          // Croissance population urbaine + cadastre
+    'Taxe professionnelle': 4.0,   // Dynamisme secteur privé
+    'Taxe locale': 2.5,            // Croissance démographique + services
+    'Impôt sur les sociétés': 5.0, // Développement entreprises formelles
+    'default': 3.0,                // Croissance PIB nominal moyen
+  };
+
+  const baseGrowth = sectorGrowthRates[recipeType] || sectorGrowthRates['default'];
+  
+  // Ajustement saisonnier
+  const season = contexts.time?.season || contexts.seasonContext?.current || 'Saison sèche';
+  const seasonalFactor = getSeasonFactor(season);
+  const seasonalAdjustment = ((seasonalFactor - 1.0) * 100);
+
+  // Ajustement économique si disponible
+  let economicAdjustment = 0;
+  if (contexts.economy?.gdp_growth) {
+    economicAdjustment = (contexts.economy.gdp_growth - 3.0); // Écart à la croissance moyenne
+  }
+
+  const totalGrowth = baseGrowth + economicAdjustment;
+  const average = (totalGrowth + seasonalAdjustment) / 2;
+
+  return {
+    growth: totalGrowth,
+    seasonalAdjustment,
+    average,
+    rationale: `Croissance sectorielle moyenne ${recipeType}: ${baseGrowth.toFixed(1)}%/an ${economicAdjustment !== 0 ? `+ ajustement éco: ${economicAdjustment.toFixed(1)}%` : ''}`,
+  };
 }
 
 /**

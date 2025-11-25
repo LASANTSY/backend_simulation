@@ -6,7 +6,7 @@ import { BboxQueryDto } from './dto/bbox-query.dto';
 import { StoredQueryDto } from './dto/stored-query.dto';
 import AppDataSource from '../data-source';
 import { Marketplace } from './marketplace.entity';
-import { PlaceService } from './place.service';
+import { PlaceService, GeocodingResult, CityBBox } from './place.service';
 
 const router = express.Router();
 const service = new OverpassService();
@@ -121,55 +121,164 @@ router.get('/markets/normalized', async (req: Request, res: Response) => {
 // GET /markets/by-city?ville=...  -> composite: places/bbox then markets then normalized
 router.get('/markets/by-city', async (req: Request, res: Response) => {
   const ville = (req.query.ville as string) || (req.query.city as string);
-  if (!ville) return res.status(400).json({ message: 'ville query parameter is required' });
+  if (!ville) {
+    return res.status(400).json({ 
+      error: 'MISSING_PARAMETER',
+      message: 'Le paramètre "ville" est requis',
+      example: '/serviceprediction/markets/by-city?ville=Mahajanga'
+    });
+  }
 
   try {
-    // 1) get bbox for the city
-    const bbox = await placeService.getCityBBox(ville);
+    // 1) Récupérer la bbox pour la ville avec gestion d'erreurs robuste
+    const bboxResult: GeocodingResult<CityBBox> = await placeService.getCityBBox(ville);
 
-    // 2) fetch markets and store them, passing provided city
-    const fetched = await service.fetchAndStoreMarkets({ south: bbox.south, west: bbox.west, north: bbox.north, east: bbox.east }, ville);
+    // Gérer les erreurs de géolocalisation avec des codes HTTP appropriés
+    if (!bboxResult.success) {
+      const { error } = bboxResult;
 
-    // 3) Build GeoJSON Feature Collection with real OSM geometries
-    const features = fetched.map((it) => {
-      // Extract OSM ID number from "type:id" format
-      const osmIdParts = it.osm_id ? it.osm_id.split(':') : ['', ''];
-      const osmIdNumber = osmIdParts.length > 1 ? parseInt(osmIdParts[1], 10) : null;
+      switch (error.type) {
+        case 'NOT_FOUND':
+          return res.status(404).json({
+            error: 'CITY_NOT_FOUND',
+            message: `La ville "${ville}" n'a pas été trouvée dans Nominatim`,
+            suggestion: 'Vérifiez l\'orthographe ou essayez une ville proche',
+            canRetry: false,
+          });
 
-      // Use stored geometry if available, otherwise fallback to Point from lat/lon
-      let geometry = it.geometry;
-      if (!geometry && it.latitude != null && it.longitude != null) {
-        geometry = {
-          type: 'Point',
-          coordinates: [it.longitude, it.latitude],
-        };
+        case 'ACCESS_BLOCKED':
+          return res.status(403).json({
+            error: 'GEOCODING_BLOCKED',
+            message: 'Accès bloqué par le service de géolocalisation',
+            reason: 'Configuration User-Agent invalide ou politique d\'utilisation non respectée',
+            details: 'Veuillez contacter l\'administrateur système',
+            canRetry: false,
+          });
+
+        case 'RATE_LIMITED':
+          return res.status(429).json({
+            error: 'RATE_LIMIT_EXCEEDED',
+            message: 'Limite de fréquence dépassée pour le service de géolocalisation',
+            suggestion: 'Veuillez réessayer dans quelques secondes',
+            canRetry: true,
+            retryAfter: 60, // secondes
+          });
+
+        case 'SERVICE_UNAVAILABLE':
+          return res.status(503).json({
+            error: 'GEOCODING_SERVICE_UNAVAILABLE',
+            message: 'Le service de géolocalisation est temporairement indisponible',
+            statusCode: error.statusCode,
+            suggestion: 'Veuillez réessayer ultérieurement',
+            canRetry: true,
+          });
+
+        case 'TIMEOUT':
+          return res.status(504).json({
+            error: 'GEOCODING_TIMEOUT',
+            message: 'Délai d\'attente dépassé lors de la géolocalisation',
+            suggestion: 'Le service de géolocalisation ne répond pas, veuillez réessayer',
+            canRetry: true,
+          });
+
+        case 'INVALID_RESPONSE':
+          return res.status(502).json({
+            error: 'INVALID_GEOCODING_RESPONSE',
+            message: 'Réponse invalide du service de géolocalisation',
+            details: error.message,
+            canRetry: true,
+          });
+
+        case 'NETWORK_ERROR':
+        default:
+          return res.status(503).json({
+            error: 'GEOCODING_NETWORK_ERROR',
+            message: 'Erreur réseau lors de la géolocalisation',
+            details: error.message,
+            canRetry: error.canRetry,
+          });
       }
+    }
 
-      return {
-        type: 'Feature',
-        properties: {
-          id: osmIdNumber,
-          name: it.name || 'Marché sans nom',
-          amenity: 'marketplace',
+    const bbox = bboxResult.data;
+
+    // 2) Récupérer les marchés via Overpass API
+    try {
+      const fetched = await service.fetchAndStoreMarkets(
+        { 
+          south: bbox.south, 
+          west: bbox.west, 
+          north: bbox.north, 
+          east: bbox.east 
+        }, 
+        ville
+      );
+
+      // 3) Construire la réponse au format simplifié: { nom, ville, delimitation }
+      const delta = 0.0015; // ~150m pour créer un polygone autour du point
+      
+      const normalized = fetched.map((it) => {
+        // Si le marché a une géométrie Polygon, l'utiliser directement
+        if (it.geometry && it.geometry.type === 'Polygon') {
+          return {
+            nom: it.name || 'Marché sans nom',
+            ville: it.city || ville,
+            delimitation: {
+              type: 'Polygon',
+              coordinates: it.geometry.coordinates,
+            },
+          };
+        }
+
+        // Sinon, créer un petit carré autour du point central
+        const lat = it.latitude ?? 0;
+        const lon = it.longitude ?? 0;
+        const coords = [
+          [lon - delta, lat - delta],
+          [lon + delta, lat - delta],
+          [lon + delta, lat + delta],
+          [lon - delta, lat + delta],
+          [lon - delta, lat - delta], // Fermer le polygone
+        ];
+
+        return {
+          nom: it.name || 'Marché sans nom',
           ville: it.city || ville,
-          source: 'OpenStreetMap',
-          osm_id: it.osm_id,
-          note: 'Coordonnées extraites via Overpass API',
-          tags: it.tags || {},
-        },
-        geometry: geometry || {
-          type: 'Point',
-          coordinates: [0, 0],
-        },
-      };
-    });
+          delimitation: {
+            type: 'Polygon',
+            coordinates: [coords],
+          },
+        };
+      });
 
-    res.json(features);
+      // Réponse réussie au format simplifié
+      return res.json(normalized);
+
+    } catch (overpassError: any) {
+      // Erreur spécifique à Overpass API
+      console.error('[OverpassController] Erreur Overpass API:', overpassError);
+      
+      return res.status(503).json({
+        error: 'OVERPASS_API_ERROR',
+        message: 'Erreur lors de la récupération des marchés depuis Overpass API',
+        details: overpassError?.message || String(overpassError),
+        ville: ville,
+        bbox: bbox,
+        suggestion: 'La ville a été géolocalisée mais la récupération des marchés a échoué',
+        canRetry: true,
+      });
+    }
+
   } catch (err: any) {
-    console.error('markets/by-city error', err);
-    if (err?.message === 'not_found') return res.status(404).json({ message: 'City not found' });
-    if (err?.message === 'timeout') return res.status(504).json({ message: 'Provider timeout' });
-    return res.status(502).json({ message: 'Failed to fetch markets for city', error: String(err) });
+    // Erreur non gérée (cas imprévu)
+    console.error('[OverpassController] Erreur non gérée dans /markets/by-city:', err);
+    
+    return res.status(500).json({
+      error: 'INTERNAL_ERROR',
+      message: 'Erreur interne lors du traitement de la requête',
+      details: err?.message || String(err),
+      canRetry: false,
+    });
   }
 });
 

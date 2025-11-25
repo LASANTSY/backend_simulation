@@ -516,7 +516,15 @@ ${contextParts.join('\n') || 'Aucun contexte additionnel'}
       const city = (sim?.parameters as any)?.city || 'Antananarivo';
       const recipeType = (sim?.parameters as any)?.recipeType || 'TVA';
       
-      console.log('[AI enrichAnalysis] Applying prediction methods...');
+      console.log('[AI enrichAnalysis] Applying prediction methods with:', {
+        city,
+        recipeType,
+        fromParameters: {
+          city: (sim?.parameters as any)?.city,
+          recipeType: (sim?.parameters as any)?.recipeType
+        }
+      });
+      
       const predictions: PredictionResults = await applyPredictionMethods(
         sim || (analysis as any).simulation,
         city,

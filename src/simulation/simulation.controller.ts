@@ -101,6 +101,7 @@ router.post('/simulations', async (req: Request, res: Response) => {
       economicContext,
       demographicContext,
       seasonContext,
+      city: dto.city,  // ✅ Passer la ville depuis la requête HTTP
     });
     // Decide response mode: default = optimized; raw available via ?raw=true
     const wantRaw = String(req.query.raw || '').toLowerCase() === 'true' || String(req.headers['x-response-mode'] || '').toLowerCase() === 'raw';

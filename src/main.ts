@@ -38,16 +38,33 @@ async function bootstrap() {
   app.use(express.json());
   app.use(morgan('dev'));
 
-  // CORS
+  // CORS Configuration
   // Configure via environment variables:
   //  - CORS_ORIGIN (comma-separated list) or default '*'
   //  - CORS_CREDENTIALS='true' to allow cookies/credentials
-  const corsOptions = {
-    origin: process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',') : '*',
-    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
-    allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
+  const allowedOrigins = process.env.CORS_ORIGIN 
+    ? process.env.CORS_ORIGIN.split(',').map(o => o.trim()) 
+    : ['*'];
+  
+  const corsOptions: cors.CorsOptions = {
+    origin: (origin, callback) => {
+      // Allow requests with no origin (mobile apps, Postman, curl, etc.)
+      if (!origin) return callback(null, true);
+      
+      // Check if origin is in allowed list or if wildcard is set
+      if (allowedOrigins.includes('*') || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
+    methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin', 'X-Requested-With'],
     credentials: process.env.CORS_CREDENTIALS === 'true',
-  } as any;
+    optionsSuccessStatus: 204, // Some legacy browsers choke on 204
+    preflightContinue: false,
+  };
+  
   app.use(cors(corsOptions));
 
   // Swagger UI
