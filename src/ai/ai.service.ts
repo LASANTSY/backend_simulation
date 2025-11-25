@@ -10,6 +10,7 @@ import * as path from 'path';
 import { llmValidationFailures } from '../monitoring/metrics.service';
 import { extractJSON } from './llm-parser';
 import contextService from '../context/context.service';
+import { applyPredictionMethods, PredictionResults } from './prediction-methods';
 import * as dotenv from 'dotenv';
 
 dotenv.config();
@@ -377,6 +378,72 @@ export class AIService {
       detailedInstructions.push(`- Saison (paramètre): ${seasonFromSim}. Intégrez l'effet saisonnier dans votre analyse des risques et opportunités.`);
     }
 
+    // ============================================================================
+    // PRÉDICTIONS QUANTITATIVES - SECTION CRUCIALE
+    // ============================================================================
+    if (extraContext.predictions) {
+      const pred = extraContext.predictions;
+      contextParts.push(`Prédictions quantitatives multi-méthodes: ${JSON.stringify(pred)}`);
+      
+      const methodsUsed = [];
+      if (pred.methods?.linear?.used) methodsUsed.push('régression linéaire');
+      if (pred.methods?.neural?.used) methodsUsed.push('réseau de neurones TensorFlow');
+      if (pred.methods?.seasonal?.used) methodsUsed.push('analyse saisonnière ARIMA');
+      
+      detailedInstructions.push(`
+PRÉDICTIONS QUANTITATIVES (3 MÉTHODES INDÉPENDANTES):
+================================================================================
+Méthodes appliquées: ${methodsUsed.join(', ')}
+
+1. RÉGRESSION LINÉAIRE: ${pred.linear?.toFixed(2) || 'N/A'}%
+   ${pred.methods?.linear?.details || 'Non disponible'}
+   → Modèle: ${pred.methods?.linear?.used ? 'Régression économétrique standard (population ou trend temporel)' : 'Non utilisé'}
+   → Interprétation: Projection basée sur les tendances historiques et corrélations économiques
+   
+2. RÉSEAU DE NEURONES (TensorFlow Docker): ${pred.neural?.toFixed(2) || 'N/A'}%
+   ${pred.methods?.neural?.details || 'Non disponible'}
+   → Modèle: ${pred.methods?.neural?.used ? 'MLP 2 couches [8,4], features=[rainfall, seasonFactor, population, GDP]' : 'Non disponible (fallback)'}
+   → Interprétation: Apprentissage non-linéaire des interactions complexes entre météo/saison/économie
+   ${pred.methods?.neural?.used && pred.methods?.neural?.details?.includes('entraîné') ? '   → Le modèle a été entraîné sur vos données historiques spécifiques' : '   → Modèle générique utilisé (données insuffisantes pour entraînement personnalisé)'}
+
+3. ANALYSE SAISONNIÈRE: ${pred.seasonal?.toFixed(2) || 'N/A'}%
+   ${pred.methods?.seasonal?.details || 'Non disponible'}
+   → Modèle: Moyennes mobiles 4 mois + facteurs saisonniers calibrés par type de recette
+   → Interprétation: Ajustement basé sur les cycles saisonniers récurrents et périodicité naturelle
+
+MOYENNE PONDÉRÉE: ${pred.average?.toFixed(2) || 'N/A'}%
+Baseline: ${pred.baseline?.toLocaleString() || 'N/A'} MGA
+
+INSTRUCTIONS D'INTERPRÉTATION POUR L'IA:
+─────────────────────────────────────────────────────────────────────────────
+Vous DEVEZ analyser ces 3 signaux quantitatifs et expliquer:
+
+a) CONVERGENCE/DIVERGENCE: Les 3 méthodes sont-elles alignées ou divergentes? 
+   - Si convergentes (±5%): Signal fort, haute confiance → Mettre confidence > 0.8
+   - Si divergentes (>10% d'écart): Signal mixte, expliquer pourquoi chaque méthode donne un résultat différent
+   
+   Exemple: "La régression linéaire (+${pred.linear?.toFixed(1)}%) et l'analyse saisonnière (+${pred.seasonal?.toFixed(1)}%) convergent vers une hausse modérée, tandis que le réseau de neurones (+${pred.neural?.toFixed(1)}%) capte des interactions non-linéaires plus optimistes, suggérant un effet multiplicateur entre croissance démographique et facteurs saisonniers."
+
+b) COHÉRENCE AVEC LES CONTEXTES:
+   - Météo: Le réseau de neurones a-t-il détecté un impact pluie/température? Cohérent avec les conditions actuelles?
+   - Saison: L'ajustement saisonnier reflète-t-il bien la période (haute/basse saison)?
+   - Économie: La régression linéaire sur PIB/population est-elle soutenable?
+   
+c) RISQUES ET OPPORTUNITÉS:
+   - Identifiez les risques basés sur les ÉCARTS entre méthodes
+   - Si le neural prédit +15% mais seasonal +5%, il y a un risque de sur-optimisme neuronal
+   - Proposez des recommandations pour exploiter les prédictions convergentes et mitiger les incertitudes
+
+d) JUSTIFICATION DES SCÉNARIOS:
+   - Scénario optimiste: Aligné avec la prédiction la plus haute (${Math.max(pred.linear || 0, pred.neural || 0, pred.seasonal || 0).toFixed(1)}%)
+   - Scénario moyen: Aligné avec la moyenne (${pred.average?.toFixed(1)}%)
+   - Scénario pessimiste: Considérer la prédiction la plus basse (${Math.min(pred.linear || 0, pred.neural || 0, pred.seasonal || 0).toFixed(1)}%) + marge de sécurité
+
+IMPORTANT: Ne vous contentez PAS de répéter les chiffres. Expliquez CE QU'ILS SIGNIFIENT dans le contexte de Madagascar, des saisons, de la météo actuelle, et du type de recette fiscale. Chaque méthode apporte un éclairage différent - synthétisez-les intelligemment.
+================================================================================
+      `.trim());
+    }
+
     const simJson = JSON.stringify(sim.parameters || {});
     const analysisJson = JSON.stringify(analysis.resultData || {});
 
@@ -441,6 +508,42 @@ ${contextParts.join('\n') || 'Aucun contexte additionnel'}
       season: extraContext.time?.season || (sim as any)?.parameters?.seasonContext?.season || 'unknown',
       contextKeys: Object.keys(extraContext)
     });
+
+    // ============================================================================
+    // APPLIQUER LES MÉTHODES DE PRÉDICTION QUANTITATIVES
+    // ============================================================================
+    try {
+      const city = (sim?.parameters as any)?.city || 'Antananarivo';
+      const recipeType = (sim?.parameters as any)?.recipeType || 'TVA';
+      
+      console.log('[AI enrichAnalysis] Applying prediction methods...');
+      const predictions: PredictionResults = await applyPredictionMethods(
+        sim || (analysis as any).simulation,
+        city,
+        recipeType,
+        extraContext
+      );
+
+      // Injecter les prédictions dans extraContext pour utilisation dans le prompt
+      extraContext.predictions = predictions;
+      
+      console.log('[AI enrichAnalysis] Predictions computed:', {
+        linear: predictions.linear.toFixed(2) + '%',
+        neural: predictions.neural.toFixed(2) + '%',
+        seasonal: predictions.seasonal.toFixed(2) + '%',
+        average: predictions.average.toFixed(2) + '%',
+      });
+    } catch (predictionError) {
+      console.error('[AI enrichAnalysis] Prediction methods failed:', predictionError);
+      // Ne pas bloquer l'analyse si les prédictions échouent
+      extraContext.predictions = {
+        error: String(predictionError),
+        linear: 0,
+        neural: 0,
+        seasonal: 0,
+        average: 0,
+      };
+    }
 
     const prompt = this.buildPrompt(sim || (analysis as any).simulation, analysis, extraContext);
 

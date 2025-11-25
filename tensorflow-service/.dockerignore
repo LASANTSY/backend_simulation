@@ -1,0 +1,38 @@
+# Dépendances (seront installées dans le conteneur)
+node_modules
+
+# Logs
+npm-debug.log
+yarn-error.log
+*.log
+
+# Git
+.git
+.gitignore
+
+# Documentation (optionnel, commentez si vous voulez la garder)
+README.md
+*.md
+
+# Environnement local
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# Tests et CI (si présents)
+test
+*.test.js
+coverage
+
+# Divers
+.DS_Store
+Thumbsdisplay.db
+
+# ⚠️ NE PAS IGNORER package-lock.json !
+# Il doit être copié pour npm ci
