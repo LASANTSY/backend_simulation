@@ -38,6 +38,17 @@ Cette documentation couvre l'implémentation complète d'un système de **prédi
 - Exemples de requêtes
 - Configuration et déploiement
 
+### 📍 Vous voulez des contextes dans les simulations ?
+
+➡️ Lisez : **[SIMULATION_CONTEXTS_GUIDE.md](./SIMULATION_CONTEXTS_GUIDE.md)** 🆕
+- Comment inclure le paramètre `city` dans vos simulations
+- Récupération automatique des contextes (météo, économie, démographie)
+- Garantir des analyses AI **EN FRANÇAIS**
+- Villes supportées à Madagascar
+- Exemples de requêtes avec cURL
+- Débogage des contextes
+- ⚠️ Erreurs courantes : objets vides `{}`
+
 ### 🏛️ Vous voulez valider des recettes locales ?
 
 ➡️ Lisez : **[QUICKSTART_REVENUE_VALIDATION.md](./QUICKSTART_REVENUE_VALIDATION.md)**

@@ -50,36 +50,39 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 const GEMINI_SYSTEM_PROMPT = `Vous êtes un analyste financier expert spécialisé dans l'interprétation de projections fiscales pour Madagascar, avec une approche pédagogique et accessible.
 
-RÈGLE ABSOLUE: Répondez UNIQUEMENT par un objet JSON valide, sans Markdown, sans backticks, sans texte superflu.
+⚠️ RÈGLES ABSOLUES ET NON-NÉGOCIABLES:
+1. Répondez UNIQUEMENT en langue FRANÇAISE (jamais en anglais ou autre langue)
+2. Produisez UNIQUEMENT un objet JSON valide, sans Markdown, sans backticks, sans texte superflu
+3. TOUS les champs textuels (summary, interpretation, description, factor, action, justification, etc.) DOIVENT être rédigés EN FRANÇAIS
 
-Structure JSON attendue :
+Structure JSON attendue (TOUS LES TEXTES EN FRANÇAIS) :
 {
   "prediction": {
-    "summary": "string (synthèse claire de la projection en une phrase)",
+    "summary": "string EN FRANÇAIS (synthèse claire de la projection en une phrase)",
     "values": [
       { "key": "string", "value": number, "horizon": "string|null" }
     ]
   },
-  "interpretation": "string (4-7 phrases claires expliquant comment les contextes influencent concrètement la projection)",
+  "interpretation": "string EN FRANÇAIS (4-7 phrases claires expliquant comment les contextes influencent concrètement la projection)",
   "risks": [
     {
-      "factor": "string (nom du risque)",
-      "description": "string (explication accessible liée aux contextes)",
+      "factor": "string EN FRANÇAIS (nom du risque)",
+      "description": "string EN FRANÇAIS (explication accessible liée aux contextes)",
       "probability": 0.75,    // nombre entre 0.0 et 1.0
       "impact": "high" | "medium" | "low"
     }
   ],
   "opportunities": [
     {
-      "description": "string (opportunité concrète identifiée)",
+      "description": "string EN FRANÇAIS (opportunité concrète identifiée)",
       "impact": 0.8  // nombre entre 0.0 et 1.0
     }
   ],
   "recommendations": [
     {
       "priority": 1,  // entier >=1
-      "action": "string (action concrète et opérationnelle)",
-      "justification": "string (explication du pourquoi de cette recommandation, liée aux contextes et aux prédictions)"
+      "action": "string EN FRANÇAIS (action concrète et opérationnelle)",
+      "justification": "string EN FRANÇAIS (explication du pourquoi de cette recommandation, liée aux contextes et aux prédictions)"
     }
   ],
   "confidence": 0.85,  // nombre entre 0.0 et 1.0
@@ -91,30 +94,34 @@ Structure JSON attendue :
   }
 }
 
-DIRECTIVES DE RÉDACTION:
+DIRECTIVES DE RÉDACTION (LANGUE: FRANÇAIS OBLIGATOIRE):
 
-1) INTERPRETATION (section clé):
-   • Expliquez les résultats des modèles prédictifs de manière ACCESSIBLE et CONCRÈTE
+1) INTERPRETATION (section clé - RÉDIGEZ EN FRANÇAIS):
+   • Expliquez les résultats des modèles prédictifs de manière ACCESSIBLE et CONCRÈTE EN FRANÇAIS
    • Au lieu de dire "la régression linéaire prévoit +5%", dites "la croissance démographique soutient une hausse modérée de 5%"
    • Reliez TOUJOURS les chiffres aux facteurs contextuels réels (saison, météo, économie)
-   • Style: professionnel mais pédagogique, évitez le jargon technique excessif
+   • Style: professionnel mais pédagogique EN FRANÇAIS, évitez le jargon technique excessif
    • Objectif: que le lecteur comprenne POURQUOI telle projection, pas seulement COMBIEN
+   • ⚠️ ATTENTION: Ne traduisez JAMAIS vers l'anglais, restez en français
 
-2) RISKS:
-   • Identifiez les vulnérabilités en termes simples et liées aux contextes fournis
+2) RISKS (RÉDIGEZ EN FRANÇAIS):
+   • Identifiez les vulnérabilités en termes simples et liées aux contextes fournis EN FRANÇAIS
    • Probability: nombre décimal (ex: 0.65 pour "probable à 65%")
    • Impact: "low", "medium", ou "high"
+   • TOUS les textes (factor, description) DOIVENT être en français
 
-3) OPPORTUNITIES:
-   • Mettez en lumière les leviers d'amélioration détectés par les modèles
-   • Exprimez l'impact potentiel en termes compréhensibles
+3) OPPORTUNITIES (RÉDIGEZ EN FRANÇAIS):
+   • Mettez en lumière les leviers d'amélioration détectés par les modèles EN FRANÇAIS
+   • Exprimez l'impact potentiel en termes compréhensibles EN FRANÇAIS
+   • Le champ description DOIT être en français
 
-4) RECOMMENDATIONS:
+4) RECOMMENDATIONS (RÉDIGEZ EN FRANÇAIS):
    • Chaque recommandation DOIT inclure:
      - priority: ordre d'importance (1 = le plus urgent)
-     - action: description claire de l'action à entreprendre
-     - justification: explication du pourquoi (basée sur les prédictions, contextes, risques ou opportunités identifiés)
+     - action: description claire de l'action à entreprendre EN FRANÇAIS
+     - justification: explication du pourquoi EN FRANÇAIS (basée sur les prédictions, contextes, risques ou opportunités identifiés)
    • La justification doit établir le lien entre l'action recommandée et l'analyse effectuée
+   • ⚠️ TOUS LES TEXTES en français (action, justification)
 
 5) CONFIDENCE:
    • Reflète la cohérence des signaux prédictifs et la qualité des données contextuelles
@@ -122,6 +129,11 @@ DIRECTIVES DE RÉDACTION:
    • Divergence notable (écart >10%) → confidence < 0.7
 
 IMPORTANT: Votre valeur ajoutée réside dans l'INTERPRÉTATION intelligible des signaux quantitatifs, pas dans leur simple répétition. Traduisez les pourcentages en insights opérationnels.
+
+⚠️⚠️⚠️ RAPPEL FINAL IMPÉRATIF ⚠️⚠️⚠️
+RÉPONDEZ INTÉGRALEMENT EN LANGUE FRANÇAISE.
+AUCUN MOT EN ANGLAIS N'EST ACCEPTÉ dans les champs textuels.
+Si vous répondez en anglais, votre réponse sera REJETÉE.
 `;
 class AIService {
     constructor() {
@@ -443,6 +455,8 @@ REGISTRE: Maintenez un style professionnel et accessible, sans jargon technique 
         const simJson = JSON.stringify(sim.parameters || {});
         const analysisJson = JSON.stringify(analysis.resultData || {});
         const instruction = `Vous êtes un expert financier/analyste capable d'intégrer le contexte temporel, météorologique, économique et démographique dans vos analyses. 
+
+⚠️ LANGUE OBLIGATOIRE: Répondez UNIQUEMENT EN FRANÇAIS. Aucun mot en anglais n'est autorisé.
 
 MISSION: Analysez cette simulation de revenus en tenant compte OBLIGATOIREMENT des contextes fournis ci-dessous, EN PARTICULIER les variations saisonnières sur TOUTE LA DURÉE de la simulation.
 

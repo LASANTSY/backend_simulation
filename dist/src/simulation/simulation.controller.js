@@ -43,10 +43,11 @@ router.post('/simulations', async (req, res) => {
     if (errors.length > 0)
         return res.status(400).json({ errors });
     try {
-        let weatherContext = dto.weatherContext;
-        let economicContext = dto.economicContext;
-        let demographicContext = dto.demographicContext;
-        let seasonContext = dto.seasonContext;
+        const isEmpty = (obj) => !obj || (typeof obj === 'object' && Object.keys(obj).length === 0);
+        let weatherContext = isEmpty(dto.weatherContext) ? null : dto.weatherContext;
+        let economicContext = isEmpty(dto.economicContext) ? null : dto.economicContext;
+        let demographicContext = isEmpty(dto.demographicContext) ? null : dto.demographicContext;
+        let seasonContext = isEmpty(dto.seasonContext) ? null : dto.seasonContext;
         if ((!weatherContext || !economicContext || !demographicContext || !seasonContext) && dto.city) {
             try {
                 console.log('[Simulation Controller] Fetching contexts for city:', dto.city);

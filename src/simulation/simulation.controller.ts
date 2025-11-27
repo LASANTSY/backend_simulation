@@ -18,11 +18,15 @@ router.post('/simulations', async (req: Request, res: Response) => {
 
   try {
     // If contexts are not provided, attempt to fetch them automatically using the provided city
-    let weatherContext = dto.weatherContext;
-    let economicContext = dto.economicContext;
-    let demographicContext = dto.demographicContext;
-    let seasonContext = dto.seasonContext;
+    // Helper: check if object is empty or null/undefined
+    const isEmpty = (obj: any) => !obj || (typeof obj === 'object' && Object.keys(obj).length === 0);
+    
+    let weatherContext = isEmpty(dto.weatherContext) ? null : dto.weatherContext;
+    let economicContext = isEmpty(dto.economicContext) ? null : dto.economicContext;
+    let demographicContext = isEmpty(dto.demographicContext) ? null : dto.demographicContext;
+    let seasonContext = isEmpty(dto.seasonContext) ? null : dto.seasonContext;
 
+    // Fetch contexts if any are missing AND city is provided
     if ((!weatherContext || !economicContext || !demographicContext || !seasonContext) && dto.city) {
       try {
         console.log('[Simulation Controller] Fetching contexts for city:', dto.city);
