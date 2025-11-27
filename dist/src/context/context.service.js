@@ -221,34 +221,76 @@ class ContextService {
         }
     }
     async fetchContextForSimulation(simulation) {
-        try {
-            const params = (simulation === null || simulation === void 0 ? void 0 : simulation.parameters) || {};
-            const ctx = {};
-            if (params.location && params.location.lat && params.location.lon) {
+        const params = (simulation === null || simulation === void 0 ? void 0 : simulation.parameters) || {};
+        const ctx = {};
+        const errors = [];
+        if (params.location && params.location.lat && params.location.lon) {
+            try {
                 ctx.weather = await this.fetchWeather(params.location.lat, params.location.lon, params.startDate);
+                console.log('[ContextService] Weather context fetched successfully');
             }
-            if (params.country) {
-                ctx.economic = {};
+            catch (err) {
+                console.warn('[ContextService] Weather fetch failed:', String(err));
+                errors.push(`weather: ${String(err)}`);
+                ctx.weather = null;
+            }
+        }
+        if (params.country) {
+            ctx.economic = {};
+            try {
                 ctx.economic.population = await this.fetchEconomicIndicator(params.country, 'SP.POP.TOTL');
-                ctx.economic.gdp = await this.fetchEconomicIndicator(params.country, 'NY.GDP.MKTP.CD');
-                try {
-                    ctx.economic.imf_gdp = await this.fetchIMFIndicator(params.country, 'NGDP_RPCH');
-                }
-                catch (e) {
-                }
-                ctx.demographics = await this.fetchDemographics(params.country);
+                console.log('[ContextService] Population indicator fetched successfully');
             }
-            if (params.startDate) {
+            catch (err) {
+                console.warn('[ContextService] Population fetch failed:', String(err));
+                errors.push(`population: ${String(err)}`);
+            }
+            try {
+                ctx.economic.gdp = await this.fetchEconomicIndicator(params.country, 'NY.GDP.MKTP.CD');
+                console.log('[ContextService] GDP indicator fetched successfully');
+            }
+            catch (err) {
+                console.warn('[ContextService] GDP fetch failed:', String(err));
+                errors.push(`gdp: ${String(err)}`);
+            }
+            try {
+                ctx.economic.imf_gdp = await this.fetchIMFIndicator(params.country, 'NGDP_RPCH');
+                console.log('[ContextService] IMF GDP indicator fetched successfully');
+            }
+            catch (err) {
+                console.warn('[ContextService] IMF GDP fetch failed (non-fatal):', String(err));
+            }
+            try {
+                ctx.demographics = await this.fetchDemographics(params.country);
+                console.log('[ContextService] Demographics fetched successfully');
+            }
+            catch (err) {
+                console.warn('[ContextService] Demographics fetch failed:', String(err));
+                errors.push(`demographics: ${String(err)}`);
+                ctx.demographics = null;
+            }
+        }
+        if (params.startDate) {
+            try {
                 const d = new Date(params.startDate);
                 const month = d.getMonth() + 1;
                 const season = month >= 3 && month <= 5 ? 'spring' : month >= 6 && month <= 8 ? 'summer' : month >= 9 && month <= 11 ? 'autumn' : 'winter';
                 ctx.season = season;
+                console.log('[ContextService] Season inferred:', season);
             }
-            return ctx;
+            catch (err) {
+                console.warn('[ContextService] Season inference failed:', String(err));
+                errors.push(`season: ${String(err)}`);
+            }
         }
-        catch (err) {
-            return { _error: String(err) };
+        if (errors.length > 0) {
+            ctx._errors = errors;
+            console.warn(`[ContextService] Context fetch completed with ${errors.length} error(s):`, errors);
         }
+        else {
+            console.log('[ContextService] All contexts fetched successfully');
+        }
+        return ctx;
     }
 }
 exports.ContextService = ContextService;

@@ -51,6 +51,7 @@ const metrics_controller_1 = __importDefault(require("./monitoring/metrics.contr
 const drift_controller_1 = __importDefault(require("./monitoring/drift.controller"));
 const secrets_controller_1 = __importDefault(require("./secrets/secrets.controller"));
 const data_labeling_controller_1 = __importDefault(require("./etl/data-labeling.controller"));
+const revenue_validation_controller_1 = __importDefault(require("./revenue-validation/revenue-validation.controller"));
 const queue_1 = require("./ai/queue");
 const error_handler_1 = __importDefault(require("./middleware/error-handler"));
 dotenv.config();
@@ -60,11 +61,28 @@ async function bootstrap() {
     const app = (0, express_1.default)();
     app.use(express_1.default.json());
     app.use((0, morgan_1.default)('dev'));
+    const allowedOrigins = process.env.CORS_ORIGIN
+        ? process.env.CORS_ORIGIN.split(',').map(o => o.trim())
+        : ['*'];
     const corsOptions = {
-        origin: process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',') : '*',
-        methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
-        allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
+        origin: (origin, callback) => {
+            if (!origin)
+                return callback(null, true);
+            console.log('CORS origin check - Allowed origins:', allowedOrigins);
+            console.log('CORS origin check - Incoming origin:', origin);
+            if (allowedOrigins.includes('*') || allowedOrigins.includes(origin)) {
+                callback(null, true);
+            }
+            else {
+                console.error('CORS blocked origin:', origin);
+                callback(new Error('Not allowed by CORS'));
+            }
+        },
+        methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
+        allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin', 'X-Requested-With'],
         credentials: process.env.CORS_CREDENTIALS === 'true',
+        optionsSuccessStatus: 204,
+        preflightContinue: false,
     };
     app.use((0, cors_1.default)(corsOptions));
     app.use('/serviceprediction/docs', swagger_ui_express_1.default.serve, swagger_ui_express_1.default.setup(swagger_1.default));
@@ -84,6 +102,7 @@ async function bootstrap() {
     app.use('/', drift_controller_1.default);
     app.use('/', secrets_controller_1.default);
     app.use('/serviceprediction', data_labeling_controller_1.default);
+    app.use('/serviceprediction', revenue_validation_controller_1.default);
     app.use(error_handler_1.default);
     const port = parseInt(process.env.APP_PORT || '3000', 10);
     app.listen(port, () => {

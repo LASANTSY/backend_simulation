@@ -18,10 +18,11 @@ class SimulationService {
         this.predictionRepo = data_source_1.default.getRepository(Prediction_1.Prediction);
     }
     async createAndRunSimulation(opts) {
-        var _a, _b, _c, _d, _e, _f, _g, _h, _j;
+        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k;
         const revenue = await this.revenueRepo.findOneBy({ id: opts.revenueId });
         if (!revenue)
             throw new Error('Revenue not found');
+        const revenueCategoryName = revenue.name || 'Unknown';
         const sim = this.simulationRepo.create({
             parameters: {
                 revenueId: opts.revenueId,
@@ -33,10 +34,12 @@ class SimulationService {
                 note: opts.note,
                 devise: (_b = (_a = opts.devise) !== null && _a !== void 0 ? _a : process.env.DEFAULT_CURRENCY) !== null && _b !== void 0 ? _b : 'MGA',
                 seasonContext: (_c = opts.seasonContext) !== null && _c !== void 0 ? _c : null,
+                city: (_d = opts.city) !== null && _d !== void 0 ? _d : null,
+                recipeType: revenueCategoryName,
             },
-            weatherContext: (_d = opts.weatherContext) !== null && _d !== void 0 ? _d : null,
-            economicContext: (_e = opts.economicContext) !== null && _e !== void 0 ? _e : null,
-            demographicContext: (_f = opts.demographicContext) !== null && _f !== void 0 ? _f : null,
+            weatherContext: (_e = opts.weatherContext) !== null && _e !== void 0 ? _e : null,
+            economicContext: (_f = opts.economicContext) !== null && _f !== void 0 ? _f : null,
+            demographicContext: (_g = opts.demographicContext) !== null && _g !== void 0 ? _g : null,
             status: 'running',
         });
         const savedSim = await this.simulationRepo.save(sim);
@@ -94,30 +97,50 @@ class SimulationService {
             summary: `${riskLevel} impact: ${deltaTotal.toFixed(2)} (${percentChange ? percentChange.toFixed(2) + '%' : 'N/A'})`,
         });
         const savedAnalysis = await this.analysisRepo.save(analysis);
-        const seasonFromParams = (_h = (_g = savedSim.parameters) === null || _g === void 0 ? void 0 : _g.seasonContext) === null || _h === void 0 ? void 0 : _h.season;
-        const season = (() => {
-            if (seasonFromParams)
-                return seasonFromParams;
-            const d = new Date(opts.startDate || new Date().toISOString().slice(0, 10));
-            const month = d.getMonth() + 1;
+        const seasonFromParams = (_j = (_h = savedSim.parameters) === null || _h === void 0 ? void 0 : _h.seasonContext) === null || _j === void 0 ? void 0 : _j.season;
+        const getSeason = (month) => {
             return month >= 3 && month <= 5 ? 'spring' : month >= 6 && month <= 8 ? 'summer' : month >= 9 && month <= 11 ? 'autumn' : 'winter';
-        })();
+        };
+        const startDate = new Date(opts.startDate || new Date().toISOString().slice(0, 10));
+        const startMonth = startDate.getMonth() + 1;
+        const startSeason = getSeason(startMonth);
+        const seasonsCovered = new Set();
+        for (let i = 0; i < opts.durationMonths; i++) {
+            const currentDate = new Date(startDate);
+            currentDate.setMonth(startDate.getMonth() + i);
+            const monthNum = currentDate.getMonth() + 1;
+            seasonsCovered.add(getSeason(monthNum));
+        }
+        const endDate = new Date(startDate);
+        endDate.setMonth(startDate.getMonth() + opts.durationMonths - 1);
+        const endMonth = endDate.getMonth() + 1;
+        const endSeason = getSeason(endMonth);
         const timeTrend = {
             percentChange,
             baselineTotal,
             simulatedTotal,
         };
         const extraContext = {
+            revenue: {
+                id: opts.revenueId,
+                category: revenueCategoryName,
+                originalAmount: Number(revenue.amount),
+                newAmount: opts.newAmount,
+            },
             time: {
                 period: opts.durationMonths,
-                season,
+                startDate: opts.startDate || new Date().toISOString().slice(0, 10),
+                endDate: endDate.toISOString().slice(0, 10),
+                startSeason,
+                endSeason,
+                seasonsCovered: Array.from(seasonsCovered),
+                season: seasonFromParams || startSeason,
                 trend: timeTrend,
-                startDate: opts.startDate || new Date().toISOString().slice(0, 10)
             },
             weather: opts.weatherContext || savedSim.weatherContext || null,
             economy: opts.economicContext || savedSim.economicContext || null,
             demography: opts.demographicContext || savedSim.demographicContext || null,
-            seasonContext: opts.seasonContext || ((_j = savedSim.parameters) === null || _j === void 0 ? void 0 : _j.seasonContext) || null,
+            seasonContext: opts.seasonContext || ((_k = savedSim.parameters) === null || _k === void 0 ? void 0 : _k.seasonContext) || null,
             months,
             baselineSeries,
             simulatedSeries,

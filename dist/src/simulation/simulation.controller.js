@@ -37,7 +37,7 @@ const context_service_1 = __importDefault(require("../context/context.service"))
 const router = express_1.default.Router();
 const placeService = new place_service_1.PlaceService();
 router.post('/simulations', async (req, res) => {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s;
     const dto = (0, class_transformer_1.plainToInstance)(create_simulation_dto_1.CreateSimulationDto, req.body);
     const errors = await (0, class_validator_1.validate)(dto, { whitelist: true, forbidNonWhitelisted: false });
     if (errors.length > 0)
@@ -49,37 +49,62 @@ router.post('/simulations', async (req, res) => {
         let seasonContext = dto.seasonContext;
         if ((!weatherContext || !economicContext || !demographicContext || !seasonContext) && dto.city) {
             try {
+                console.log('[Simulation Controller] Fetching contexts for city:', dto.city);
                 const info = await placeService.getCityInfo(dto.city);
                 const lat = info.lat;
                 const lon = info.lon;
+                console.log('[Simulation Controller] City info:', { lat, lon, country: (_a = info.address) === null || _a === void 0 ? void 0 : _a.country_code });
                 let countryForIndicators = undefined;
                 try {
-                    const countryKey = (_b = (_a = info.address) === null || _a === void 0 ? void 0 : _a.country_code) !== null && _b !== void 0 ? _b : (_c = info.address) === null || _c === void 0 ? void 0 : _c.country;
+                    const countryKey = (_c = (_b = info.address) === null || _b === void 0 ? void 0 : _b.country_code) !== null && _c !== void 0 ? _c : (_d = info.address) === null || _d === void 0 ? void 0 : _d.country;
                     if (countryKey) {
                         const dem = await context_service_1.default.fetchDemographics(countryKey);
                         if (Array.isArray(dem) && dem.length > 0) {
                             const c0 = dem[0];
-                            countryForIndicators = (_f = (_e = (_d = c0 === null || c0 === void 0 ? void 0 : c0.cca2) !== null && _d !== void 0 ? _d : c0 === null || c0 === void 0 ? void 0 : c0.cca3) !== null && _e !== void 0 ? _e : c0 === null || c0 === void 0 ? void 0 : c0.cca1) !== null && _f !== void 0 ? _f : undefined;
+                            countryForIndicators = (_g = (_f = (_e = c0 === null || c0 === void 0 ? void 0 : c0.cca2) !== null && _e !== void 0 ? _e : c0 === null || c0 === void 0 ? void 0 : c0.cca3) !== null && _f !== void 0 ? _f : c0 === null || c0 === void 0 ? void 0 : c0.cca1) !== null && _g !== void 0 ? _g : undefined;
                         }
                         else if (dem && dem.cca3) {
-                            countryForIndicators = (_g = dem.cca2) !== null && _g !== void 0 ? _g : dem.cca3;
+                            countryForIndicators = (_h = dem.cca2) !== null && _h !== void 0 ? _h : dem.cca3;
                         }
                     }
                 }
                 catch (demErr) {
-                    countryForIndicators = ((_h = info.address) === null || _h === void 0 ? void 0 : _h.country_code) ? info.address.country_code.toUpperCase() : (_j = info.address) === null || _j === void 0 ? void 0 : _j.country;
+                    console.warn('[Simulation Controller] Demographics fetch for country resolution failed:', demErr);
+                    countryForIndicators = ((_j = info.address) === null || _j === void 0 ? void 0 : _j.country_code) ? info.address.country_code.toUpperCase() : (_k = info.address) === null || _k === void 0 ? void 0 : _k.country;
                 }
-                const simPlaceholder = { parameters: { location: { lat, lon }, country: countryForIndicators !== null && countryForIndicators !== void 0 ? countryForIndicators : (_k = info.address) === null || _k === void 0 ? void 0 : _k.country, startDate: dto.startDate } };
+                console.log('[Simulation Controller] Country for indicators:', countryForIndicators);
+                const simPlaceholder = { parameters: { location: { lat, lon }, country: countryForIndicators !== null && countryForIndicators !== void 0 ? countryForIndicators : (_l = info.address) === null || _l === void 0 ? void 0 : _l.country, startDate: dto.startDate } };
                 const fetched = await context_service_1.default.fetchContextForSimulation(simPlaceholder);
-                weatherContext = (_l = weatherContext !== null && weatherContext !== void 0 ? weatherContext : fetched.weather) !== null && _l !== void 0 ? _l : null;
-                economicContext = (_o = (_m = economicContext !== null && economicContext !== void 0 ? economicContext : fetched.economic) !== null && _m !== void 0 ? _m : fetched.economy) !== null && _o !== void 0 ? _o : null;
-                demographicContext = (_p = demographicContext !== null && demographicContext !== void 0 ? demographicContext : fetched.demographics) !== null && _p !== void 0 ? _p : null;
+                console.log('[Simulation Controller] Fetched contexts:', {
+                    hasWeather: !!fetched.weather,
+                    hasEconomic: !!fetched.economic,
+                    hasDemographics: !!fetched.demographics,
+                    hasSeason: !!fetched.season,
+                    errors: fetched._errors
+                });
+                weatherContext = (_m = weatherContext !== null && weatherContext !== void 0 ? weatherContext : fetched.weather) !== null && _m !== void 0 ? _m : null;
+                economicContext = (_p = (_o = economicContext !== null && economicContext !== void 0 ? economicContext : fetched.economic) !== null && _o !== void 0 ? _o : fetched.economy) !== null && _p !== void 0 ? _p : null;
+                demographicContext = (_q = demographicContext !== null && demographicContext !== void 0 ? demographicContext : fetched.demographics) !== null && _q !== void 0 ? _q : null;
                 seasonContext = seasonContext !== null && seasonContext !== void 0 ? seasonContext : (fetched.season ? { season: fetched.season } : null);
+                console.log('[Simulation Controller] Final contexts to pass:', {
+                    hasWeather: !!weatherContext,
+                    hasEconomic: !!economicContext,
+                    hasDemographics: !!demographicContext,
+                    hasSeason: !!seasonContext
+                });
                 req._contextFetchInfo = { cityInfo: info, fetched };
             }
             catch (e) {
                 console.warn('Context auto-fetch failed:', e);
             }
+        }
+        else {
+            console.log('[Simulation Controller] Skipping context fetch. City provided:', !!dto.city, 'Contexts already present:', {
+                weather: !!weatherContext,
+                economic: !!economicContext,
+                demographic: !!demographicContext,
+                season: !!seasonContext
+            });
         }
         const result = await simulation_service_1.default.createAndRunSimulation({
             revenueId: dto.revenueId,
@@ -88,11 +113,12 @@ router.post('/simulations', async (req, res) => {
             durationMonths: dto.durationMonths,
             startDate: dto.startDate,
             note: dto.note,
-            devise: (_r = (_q = dto.devise) !== null && _q !== void 0 ? _q : process.env.DEFAULT_CURRENCY) !== null && _r !== void 0 ? _r : 'MGA',
+            devise: (_s = (_r = dto.devise) !== null && _r !== void 0 ? _r : process.env.DEFAULT_CURRENCY) !== null && _s !== void 0 ? _s : 'MGA',
             weatherContext,
             economicContext,
             demographicContext,
             seasonContext,
+            city: dto.city,
         });
         const wantRaw = String(req.query.raw || '').toLowerCase() === 'true' || String(req.headers['x-response-mode'] || '').toLowerCase() === 'raw';
         if (wantRaw) {

@@ -113,48 +113,135 @@ router.get('/markets/normalized', async (req, res) => {
 });
 router.get('/markets/by-city', async (req, res) => {
     const ville = req.query.ville || req.query.city;
-    if (!ville)
-        return res.status(400).json({ message: 'ville query parameter is required' });
-    try {
-        const bbox = await placeService.getCityBBox(ville);
-        const fetched = await service.fetchAndStoreMarkets({ south: bbox.south, west: bbox.west, north: bbox.north, east: bbox.east }, ville);
-        const features = fetched.map((it) => {
-            const osmIdParts = it.osm_id ? it.osm_id.split(':') : ['', ''];
-            const osmIdNumber = osmIdParts.length > 1 ? parseInt(osmIdParts[1], 10) : null;
-            let geometry = it.geometry;
-            if (!geometry && it.latitude != null && it.longitude != null) {
-                geometry = {
-                    type: 'Point',
-                    coordinates: [it.longitude, it.latitude],
-                };
-            }
-            return {
-                type: 'Feature',
-                properties: {
-                    id: osmIdNumber,
-                    name: it.name || 'Marché sans nom',
-                    amenity: 'marketplace',
-                    ville: it.city || ville,
-                    source: 'OpenStreetMap',
-                    osm_id: it.osm_id,
-                    note: 'Coordonnées extraites via Overpass API',
-                    tags: it.tags || {},
-                },
-                geometry: geometry || {
-                    type: 'Point',
-                    coordinates: [0, 0],
-                },
-            };
+    if (!ville) {
+        return res.status(400).json({
+            error: 'MISSING_PARAMETER',
+            message: 'Le paramètre "ville" est requis',
+            example: '/serviceprediction/markets/by-city?ville=Mahajanga'
         });
-        res.json(features);
+    }
+    try {
+        const bboxResult = await placeService.getCityBBox(ville);
+        if (!bboxResult.success) {
+            const error = 'error' in bboxResult ? bboxResult.error : null;
+            switch (error === null || error === void 0 ? void 0 : error.type) {
+                case 'NOT_FOUND':
+                    return res.status(404).json({
+                        error: 'CITY_NOT_FOUND',
+                        message: `La ville "${ville}" n'a pas été trouvée dans Nominatim`,
+                        suggestion: 'Vérifiez l\'orthographe ou essayez une ville proche',
+                        canRetry: false,
+                    });
+                case 'ACCESS_BLOCKED':
+                    return res.status(403).json({
+                        error: 'GEOCODING_BLOCKED',
+                        message: 'Accès bloqué par le service de géolocalisation',
+                        reason: 'Configuration User-Agent invalide ou politique d\'utilisation non respectée',
+                        details: 'Veuillez contacter l\'administrateur système',
+                        canRetry: false,
+                    });
+                case 'RATE_LIMITED':
+                    return res.status(429).json({
+                        error: 'RATE_LIMIT_EXCEEDED',
+                        message: 'Limite de fréquence dépassée pour le service de géolocalisation',
+                        suggestion: 'Veuillez réessayer dans quelques secondes',
+                        canRetry: true,
+                        retryAfter: 60,
+                    });
+                case 'SERVICE_UNAVAILABLE':
+                    return res.status(503).json({
+                        error: 'GEOCODING_SERVICE_UNAVAILABLE',
+                        message: 'Le service de géolocalisation est temporairement indisponible',
+                        statusCode: error.statusCode,
+                        suggestion: 'Veuillez réessayer ultérieurement',
+                        canRetry: true,
+                    });
+                case 'TIMEOUT':
+                    return res.status(504).json({
+                        error: 'GEOCODING_TIMEOUT',
+                        message: 'Délai d\'attente dépassé lors de la géolocalisation',
+                        suggestion: 'Le service de géolocalisation ne répond pas, veuillez réessayer',
+                        canRetry: true,
+                    });
+                case 'INVALID_RESPONSE':
+                    return res.status(502).json({
+                        error: 'INVALID_GEOCODING_RESPONSE',
+                        message: 'Réponse invalide du service de géolocalisation',
+                        details: error.message,
+                        canRetry: true,
+                    });
+                case 'NETWORK_ERROR':
+                default:
+                    return res.status(503).json({
+                        error: 'GEOCODING_NETWORK_ERROR',
+                        message: 'Erreur réseau lors de la géolocalisation',
+                        details: error.message,
+                        canRetry: error.canRetry,
+                    });
+            }
+        }
+        const bbox = bboxResult.data;
+        try {
+            const fetched = await service.fetchAndStoreMarkets({
+                south: bbox.south,
+                west: bbox.west,
+                north: bbox.north,
+                east: bbox.east
+            }, ville);
+            const delta = 0.0015;
+            const normalized = fetched.map((it) => {
+                var _a, _b;
+                if (it.geometry && it.geometry.type === 'Polygon') {
+                    return {
+                        nom: it.name || 'Marché sans nom',
+                        ville: it.city || ville,
+                        delimitation: {
+                            type: 'Polygon',
+                            coordinates: it.geometry.coordinates,
+                        },
+                    };
+                }
+                const lat = (_a = it.latitude) !== null && _a !== void 0 ? _a : 0;
+                const lon = (_b = it.longitude) !== null && _b !== void 0 ? _b : 0;
+                const coords = [
+                    [lon - delta, lat - delta],
+                    [lon + delta, lat - delta],
+                    [lon + delta, lat + delta],
+                    [lon - delta, lat + delta],
+                    [lon - delta, lat - delta],
+                ];
+                return {
+                    nom: it.name || 'Marché sans nom',
+                    ville: it.city || ville,
+                    delimitation: {
+                        type: 'Polygon',
+                        coordinates: [coords],
+                    },
+                };
+            });
+            return res.json(normalized);
+        }
+        catch (overpassError) {
+            console.error('[OverpassController] Erreur Overpass API:', overpassError);
+            return res.status(503).json({
+                error: 'OVERPASS_API_ERROR',
+                message: 'Erreur lors de la récupération des marchés depuis Overpass API',
+                details: (overpassError === null || overpassError === void 0 ? void 0 : overpassError.message) || String(overpassError),
+                ville: ville,
+                bbox: bbox,
+                suggestion: 'La ville a été géolocalisée mais la récupération des marchés a échoué',
+                canRetry: true,
+            });
+        }
     }
     catch (err) {
-        console.error('markets/by-city error', err);
-        if ((err === null || err === void 0 ? void 0 : err.message) === 'not_found')
-            return res.status(404).json({ message: 'City not found' });
-        if ((err === null || err === void 0 ? void 0 : err.message) === 'timeout')
-            return res.status(504).json({ message: 'Provider timeout' });
-        return res.status(502).json({ message: 'Failed to fetch markets for city', error: String(err) });
+        console.error('[OverpassController] Erreur non gérée dans /markets/by-city:', err);
+        return res.status(500).json({
+            error: 'INTERNAL_ERROR',
+            message: 'Erreur interne lors du traitement de la requête',
+            details: (err === null || err === void 0 ? void 0 : err.message) || String(err),
+            canRetry: false,
+        });
     }
 });
 exports.default = router;

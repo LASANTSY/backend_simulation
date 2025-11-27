@@ -23,6 +23,7 @@ import metricsRouter from './monitoring/metrics.controller';
 import driftRouter from './monitoring/drift.controller';
 import secretsRouter from './secrets/secrets.controller';
 import dataLabelingRouter from './etl/data-labeling.controller';
+import revenueValidationRouter from './revenue-validation/revenue-validation.controller';
 import { initQueue } from './ai/queue';
 // authMiddleware removed per request - application is public
 import errorHandler from './middleware/error-handler';
@@ -96,6 +97,7 @@ async function bootstrap() {
   app.use('/', driftRouter);
   app.use('/', secretsRouter);
   app.use('/serviceprediction', dataLabelingRouter);
+  app.use('/serviceprediction', revenueValidationRouter);
 
   // Error handler
   app.use(errorHandler as any);

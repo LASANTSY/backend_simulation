@@ -68,6 +68,20 @@ function extractEconomics(sim) {
     }
     return { population_2024: population, gdp_2024_usd: gdpUsd };
 }
+function extractDemographics(sim) {
+    var _a, _b, _c, _d, _e, _f;
+    const demo = (sim === null || sim === void 0 ? void 0 : sim.demographicContext) || (sim === null || sim === void 0 ? void 0 : sim.demographics) || (sim === null || sim === void 0 ? void 0 : sim.demography) || null;
+    if (!demo)
+        return null;
+    return {
+        country: (_a = demo.country) !== null && _a !== void 0 ? _a : null,
+        capital: (_b = demo.capital) !== null && _b !== void 0 ? _b : null,
+        region: (_c = demo.region) !== null && _c !== void 0 ? _c : null,
+        population: (_d = demo.population) !== null && _d !== void 0 ? _d : null,
+        languages: (_e = demo.languages) !== null && _e !== void 0 ? _e : [],
+        gini: (_f = demo.gini) !== null && _f !== void 0 ? _f : null,
+    };
+}
 function extractSeason(sim) {
     var _a, _b;
     const sc = ((_a = sim === null || sim === void 0 ? void 0 : sim.parameters) === null || _a === void 0 ? void 0 : _a.seasonContext) || (sim === null || sim === void 0 ? void 0 : sim.seasonContext) || null;
@@ -88,22 +102,35 @@ function extractParameters(sim) {
     };
 }
 function extractAi(analysis) {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o;
     const rd = (analysis === null || analysis === void 0 ? void 0 : analysis.resultData) || {};
     const ai = (rd === null || rd === void 0 ? void 0 : rd.aiAnalysis) || null;
-    if (!ai && !(rd === null || rd === void 0 ? void 0 : rd.aiModel))
+    if (!ai && !(rd === null || rd === void 0 ? void 0 : rd.aiModel) && !(rd === null || rd === void 0 ? void 0 : rd.aiError))
         return null;
-    const prediction_summary = (_b = (_a = ai === null || ai === void 0 ? void 0 : ai.prediction) === null || _a === void 0 ? void 0 : _a.summary) !== null && _b !== void 0 ? _b : null;
-    const key_values = (_e = (_d = (_c = ai === null || ai === void 0 ? void 0 : ai.prediction) === null || _c === void 0 ? void 0 : _c.key_values) !== null && _d !== void 0 ? _d : ai === null || ai === void 0 ? void 0 : ai.key_values) !== null && _e !== void 0 ? _e : undefined;
+    if (rd === null || rd === void 0 ? void 0 : rd.aiError) {
+        return {
+            model: (_a = rd === null || rd === void 0 ? void 0 : rd.aiModel) !== null && _a !== void 0 ? _a : null,
+            error: rd === null || rd === void 0 ? void 0 : rd.aiError,
+            error_details: (_b = rd === null || rd === void 0 ? void 0 : rd.aiErrorDetailed) !== null && _b !== void 0 ? _b : null,
+            confidence: null,
+            prediction_summary: null,
+            interpretation: null,
+            risks: [],
+            opportunities: [],
+            recommendations: [],
+        };
+    }
+    const prediction_summary = (_d = (_c = ai === null || ai === void 0 ? void 0 : ai.prediction) === null || _c === void 0 ? void 0 : _c.summary) !== null && _d !== void 0 ? _d : null;
+    const key_values = (_g = (_f = (_e = ai === null || ai === void 0 ? void 0 : ai.prediction) === null || _e === void 0 ? void 0 : _e.key_values) !== null && _f !== void 0 ? _f : ai === null || ai === void 0 ? void 0 : ai.key_values) !== null && _g !== void 0 ? _g : undefined;
     return {
-        model: (_f = rd === null || rd === void 0 ? void 0 : rd.aiModel) !== null && _f !== void 0 ? _f : null,
-        confidence: (_g = ai === null || ai === void 0 ? void 0 : ai.confidence) !== null && _g !== void 0 ? _g : null,
+        model: (_h = rd === null || rd === void 0 ? void 0 : rd.aiModel) !== null && _h !== void 0 ? _h : null,
+        confidence: (_j = ai === null || ai === void 0 ? void 0 : ai.confidence) !== null && _j !== void 0 ? _j : null,
         prediction_summary: prediction_summary !== null && prediction_summary !== void 0 ? prediction_summary : null,
         key_values: key_values !== null && key_values !== void 0 ? key_values : undefined,
-        interpretation: (_h = ai === null || ai === void 0 ? void 0 : ai.interpretation) !== null && _h !== void 0 ? _h : null,
-        risks: (_j = ai === null || ai === void 0 ? void 0 : ai.risks) !== null && _j !== void 0 ? _j : [],
-        opportunities: (_k = ai === null || ai === void 0 ? void 0 : ai.opportunities) !== null && _k !== void 0 ? _k : [],
-        recommendations: (_l = ai === null || ai === void 0 ? void 0 : ai.recommendations) !== null && _l !== void 0 ? _l : [],
+        interpretation: (_k = ai === null || ai === void 0 ? void 0 : ai.interpretation) !== null && _k !== void 0 ? _k : null,
+        risks: (_l = ai === null || ai === void 0 ? void 0 : ai.risks) !== null && _l !== void 0 ? _l : [],
+        opportunities: (_m = ai === null || ai === void 0 ? void 0 : ai.opportunities) !== null && _m !== void 0 ? _m : [],
+        recommendations: (_o = ai === null || ai === void 0 ? void 0 : ai.recommendations) !== null && _o !== void 0 ? _o : [],
     };
 }
 function buildOptimizedResponse(payload) {
@@ -117,6 +144,7 @@ function buildOptimizedResponse(payload) {
         parameters: extractParameters(sim),
         weather: extractWeather(sim),
         economic: extractEconomics(sim),
+        demographics: extractDemographics(sim),
         analysis_results: {
             analysis_id: (_c = analysis === null || analysis === void 0 ? void 0 : analysis.id) !== null && _c !== void 0 ? _c : null,
             baseline_total: (_d = rd === null || rd === void 0 ? void 0 : rd.baselineTotal) !== null && _d !== void 0 ? _d : null,

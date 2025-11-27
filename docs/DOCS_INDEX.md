@@ -38,6 +38,20 @@ Cette documentation couvre l'implémentation complète d'un système de **prédi
 - Exemples de requêtes
 - Configuration et déploiement
 
+### 🏛️ Vous voulez valider des recettes locales ?
+
+➡️ Lisez : **[QUICKSTART_REVENUE_VALIDATION.md](./QUICKSTART_REVENUE_VALIDATION.md)**
+- Installation et configuration rapide
+- Guide d'utilisation
+- Exemples de requêtes
+- Résolution de problèmes
+
+➡️ Documentation complète : **[REVENUE_VALIDATION_MODULE.md](./REVENUE_VALIDATION_MODULE.md)**
+- Architecture détaillée
+- API Endpoints
+- Processus de validation
+- Statuts et métadonnées
+
 ### 📋 Vous cherchez les commandes ?
 
 ➡️ Lisez : **[COMMANDS_CHEATSHEET.md](./COMMANDS_CHEATSHEET.md)**

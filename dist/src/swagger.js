@@ -3,264 +3,758 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const swaggerSpec = {
     openapi: '3.0.0',
     info: {
-        title: 'Documentation API - Service prédiction',
-        version: '0.1.0',
-        description: 'API pour la gestion des recettes, simulations et previsions. Les routes sont exposees sous /serviceprediction.',
+        title: 'API Service Prédiction - Mobilisation Recette Locale',
+        version: '1.0.0',
+        description: 'API pour la gestion des recettes, prédictions, simulations et validation de conformité réglementaire pour les collectivités territoriales décentralisées de Madagascar.',
     },
-    servers: [{ url: '/', description: 'Serveur local (root) — les paths incluent /serviceprediction' }],
+    servers: [
+        {
+            url: 'http://localhost:3000',
+            description: 'Serveur local de développement'
+        }
+    ],
     tags: [
-        { name: 'revenue', description: 'Gestion des recettes (CRUD)' },
-        { name: 'prediction', description: 'Calculs et stockage des previsions' },
-        { name: 'simulation', description: "Scenarios et analyses d'impact (IA integree)" },
-        { name: 'integrations', description: 'Integrations externes (transactions, passerelles)' },
-        { name: 'ai', description: 'Enrichissement automatique via IA' },
-        { name: 'optimization', description: 'Optimisation du timing' },
+        { name: 'Revenus', description: 'Gestion des recettes (CRUD)' },
+        { name: 'Prédictions', description: 'Calculs et stockage des prévisions' },
+        { name: 'Simulations', description: "Scénarios et analyses d'impact" },
+        { name: 'Marchés', description: 'Intégrations externes (OpenStreetMap, Nominatim)' },
+        { name: 'Optimisation', description: 'Enrichissement IA et optimisation du timing' },
+        { name: 'Légalité', description: 'Validation et normalisation des recettes (PCOP/LFI 2025)' },
     ],
     paths: {
-        '/serviceprediction/markets': {
-            get: {
-                tags: ['integrations'],
-                summary: "Lister les marketplaces via Overpass (OpenStreetMap)",
-                description: 'Recupere les objets amenity=marketplace dans la bounding box fournie et les enregistre localement.',
-                parameters: [
-                    { name: 'city', in: 'query', required: false, schema: { type: 'string' }, description: 'Nom de la ville a associer aux resultats (optionnel) - forcera la valeur enregistrée' },
-                    { name: 'south', in: 'query', required: true, schema: { type: 'number' }, description: 'Latitude sud (min) - format decimal' },
-                    { name: 'west', in: 'query', required: true, schema: { type: 'number' }, description: 'Longitude ouest (min) - format decimal' },
-                    { name: 'north', in: 'query', required: true, schema: { type: 'number' }, description: 'Latitude nord (max) - format decimal' },
-                    { name: 'east', in: 'query', required: true, schema: { type: 'number' }, description: 'Longitude est (max) - format decimal' },
-                ],
-                responses: {
-                    '200': { description: 'Liste des marketplaces', content: { 'application/json': { schema: { type: 'array', items: { $ref: '#/components/schemas/Marketplace' } } } } },
-                    '400': { description: 'Parametres de requete invalides' },
-                    '502': { description: 'Erreur lors de l appel a l API Overpass' },
-                },
-            },
-        },
-        '/serviceprediction/markets/stored': {
-            get: {
-                tags: ['integrations'],
-                summary: 'Recuperer les marketplaces enregistres localement',
-                parameters: [
-                    { name: 'city', in: 'query', required: false, schema: { type: 'string' }, description: 'Filtrer par nom de ville' },
-                    { name: 'since', in: 'query', required: false, schema: { type: 'string', format: 'date-time' }, description: 'Recuperer les enregistrements depuis cette date (ISO)' },
-                    { name: 'limit', in: 'query', required: false, schema: { type: 'integer' }, description: 'Nombre maximum d elements a renvoyer' },
-                    { name: 'south', in: 'query', required: false, schema: { type: 'number' }, description: 'Latitude sud (min)' },
-                    { name: 'west', in: 'query', required: false, schema: { type: 'number' }, description: 'Longitude ouest (min)' },
-                    { name: 'north', in: 'query', required: false, schema: { type: 'number' }, description: 'Latitude nord (max)' },
-                    { name: 'east', in: 'query', required: false, schema: { type: 'number' }, description: 'Longitude est (max)' },
-                ],
-                responses: {
-                    '200': { description: 'Liste des marketplaces enregistres', content: { 'application/json': { schema: { type: 'array', items: { $ref: '#/components/schemas/Marketplace' } } } } },
-                    '400': { description: 'Parametres invalides' },
-                    '500': { description: 'Erreur serveur' },
-                },
-            },
-        },
-        '/serviceprediction/places/bbox': {
-            get: {
-                tags: ['integrations'],
-                summary: "Recuperer le bounding box d'une ville via OSM (Nominatim)",
-                parameters: [
-                    { name: 'city', in: 'query', required: true, schema: { type: 'string' }, description: 'Nom de la ville (ex: Antananarivo)' },
-                ],
-                responses: {
-                    '200': { description: 'Bounding box de la ville', content: { 'application/json': { schema: { $ref: '#/components/schemas/CityBBox' } } } },
-                    '400': { description: 'Parametres invalides' },
-                    '404': { description: 'Ville non trouvée' },
-                    '502': { description: 'Erreur fournisseur externe' },
-                },
-            },
-        },
-        '/serviceprediction/markets/by-city': {
-            get: {
-                tags: ['integrations'],
-                summary: 'Recuperer et normaliser les marketplaces pour une ville (places+bbox -> markets)',
-                parameters: [
-                    { name: 'ville', in: 'query', required: true, schema: { type: 'string' }, description: 'Nom de la ville (ex: Mahajanga)' },
-                ],
-                responses: {
-                    '200': { description: 'Liste normalisee des marketplaces', content: { 'application/json': { schema: { type: 'array', items: { $ref: '#/components/schemas/MarketplaceNormalized' } } } } },
-                    '400': { description: 'Parametres invalides' },
-                    '404': { description: 'Ville non trouvee' },
-                    '502': { description: 'Erreur lors de la recuperation des marches' },
-                },
-            },
-        },
-        '/serviceprediction/markets/normalized': {
-            get: {
-                tags: ['integrations'],
-                summary: "Afficher les marketplaces normalisees (nom, ville, delimitation GeoJSON)",
-                parameters: [
-                    { name: 'city', in: 'query', required: false, schema: { type: 'string' } },
-                    { name: 'since', in: 'query', required: false, schema: { type: 'string', format: 'date-time' } },
-                    { name: 'limit', in: 'query', required: false, schema: { type: 'integer' } },
-                    { name: 'south', in: 'query', required: false, schema: { type: 'number' } },
-                    { name: 'west', in: 'query', required: false, schema: { type: 'number' } },
-                    { name: 'north', in: 'query', required: false, schema: { type: 'number' } },
-                    { name: 'east', in: 'query', required: false, schema: { type: 'number' } },
-                ],
-                responses: {
-                    '200': { description: 'Liste normalisee', content: { 'application/json': { schema: { type: 'array', items: { $ref: '#/components/schemas/MarketplaceNormalized' } } } } },
-                    '400': { description: 'Parametres invalides' },
-                    '500': { description: 'Erreur serveur' },
-                },
-            },
-        },
-        '/serviceprediction/predictions/run': {
-            post: {
-                tags: ['prediction'],
-                summary: "Lancer les previsions a partir des transactions d'une municipalite",
-                description: 'Recupere les transactions pour la municipalite fournie, calcule les previsions et enregistre les resultats.',
-                requestBody: {
-                    required: true,
-                    content: {
-                        'application/json': { schema: { $ref: '#/components/schemas/PredictionRunDto' } },
-                    },
-                },
-                responses: {
-                    '200': { description: 'Previsions calculees et enregistrees' },
-                    '400': { description: 'Requete invalide' },
-                    '502': { description: 'Erreur fournisseur externe' },
-                },
-            },
-        },
-        '/serviceprediction/external/transactions/{municipalityId}': {
-            get: {
-                tags: ['integrations'],
-                summary: 'Proxy - obtenir les transactions pour une municipalite',
-                parameters: [{ name: 'municipalityId', in: 'path', required: true, schema: { type: 'string' }, description: 'Identifiant de la municipalite' }],
-                responses: { '200': { description: 'Donnees renvoyees' }, '502': { description: 'Erreur passerelle' } },
-            },
-        },
         '/serviceprediction/revenues': {
             get: {
-                tags: ['revenue'],
+                tags: ['Revenus'],
                 summary: 'Lister les recettes',
+                description: 'Récupère la liste des recettes, optionnellement filtrée par municipalité',
                 parameters: [
-                    { name: 'municipalityId', in: 'query', required: false, schema: { type: 'string' }, description: 'Filtrer par identifiant de municipalité' },
+                    {
+                        name: 'municipalityId',
+                        in: 'query',
+                        required: false,
+                        schema: { type: 'string' },
+                        description: 'Filtrer par identifiant de municipalité'
+                    }
                 ],
-                responses: { '200': { description: 'Liste des recettes' } },
+                responses: {
+                    '200': {
+                        description: 'Liste des recettes',
+                        content: {
+                            'application/json': {
+                                schema: {
+                                    type: 'array',
+                                    items: { $ref: '#/components/schemas/Revenue' }
+                                }
+                            }
+                        }
+                    }
+                }
             },
             post: {
-                tags: ['revenue'],
-                summary: 'Creer une recette ou synchroniser les transactions externes (sync-only)',
-                description: 'Deux modes supportés :\n- Sync-only : envoyez { "municipality_id": "..." } (ou municipalityId) pour déclencher uniquement la synchronisation des transactions externes.\n- Create : envoyez le payload complet de création de recette (CreateRevenueDto). Si vous fournissez en plus "municipality_id", une synchronisation sera également exécutée.',
+                tags: ['Revenus'],
+                summary: 'Créer une nouvelle recette',
+                description: 'Enregistre une nouvelle recette et synchronise optionnellement avec les sources externes',
                 requestBody: {
                     required: true,
                     content: {
                         'application/json': {
-                            schema: { $ref: '#/components/schemas/SyncRevenuesDto' }
+                            schema: { $ref: '#/components/schemas/CreateRevenueDto' }
                         }
                     }
                 },
                 responses: {
-                    '200': { description: 'Synchonisation effectuee (sync-only)', content: { 'application/json': { schema: { $ref: '#/components/schemas/SyncReport' } } } },
-                    '400': { description: 'Requete invalide' },
-                    '502': { description: 'Erreur lors de la synchronisation des transactions externes' },
-                },
-            },
+                    '201': {
+                        description: 'Recette créée avec succès',
+                        content: {
+                            'application/json': {
+                                schema: { $ref: '#/components/schemas/Revenue' }
+                            }
+                        }
+                    },
+                    '400': { description: 'Données invalides' }
+                }
+            }
         },
         '/serviceprediction/revenues/{id}': {
-            get: { tags: ['revenue'], summary: 'Recuperer une recette', parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }], responses: { '200': { description: 'OK' }, '404': { description: 'Non trouve' } } },
-            put: { tags: ['revenue'], summary: 'Mettre a jour une recette', requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/UpdateRevenueDto' } } } }, responses: { '200': { description: 'Mis a jour' } } },
-            delete: { tags: ['revenue'], summary: 'Supprimer une recette', responses: { '204': { description: 'Supprime' } } },
+            get: {
+                tags: ['Revenus'],
+                summary: 'Récupérer une recette',
+                description: 'Obtient les détails d\'une recette spécifique',
+                parameters: [
+                    {
+                        name: 'id',
+                        in: 'path',
+                        required: true,
+                        schema: { type: 'string', format: 'uuid' },
+                        description: 'Identifiant unique de la recette'
+                    }
+                ],
+                responses: {
+                    '200': {
+                        description: 'Détails de la recette',
+                        content: {
+                            'application/json': {
+                                schema: { $ref: '#/components/schemas/Revenue' }
+                            }
+                        }
+                    },
+                    '404': { description: 'Recette non trouvée' }
+                }
+            },
+            put: {
+                tags: ['Revenus'],
+                summary: 'Mettre à jour une recette',
+                description: 'Modifie les données d\'une recette existante',
+                parameters: [
+                    {
+                        name: 'id',
+                        in: 'path',
+                        required: true,
+                        schema: { type: 'string', format: 'uuid' }
+                    }
+                ],
+                requestBody: {
+                    required: true,
+                    content: {
+                        'application/json': {
+                            schema: { $ref: '#/components/schemas/UpdateRevenueDto' }
+                        }
+                    }
+                },
+                responses: {
+                    '200': {
+                        description: 'Recette mise à jour',
+                        content: {
+                            'application/json': {
+                                schema: { $ref: '#/components/schemas/Revenue' }
+                            }
+                        }
+                    },
+                    '404': { description: 'Recette non trouvée' }
+                }
+            },
+            delete: {
+                tags: ['Revenus'],
+                summary: 'Supprimer une recette',
+                description: 'Supprime définitivement une recette',
+                parameters: [
+                    {
+                        name: 'id',
+                        in: 'path',
+                        required: true,
+                        schema: { type: 'string', format: 'uuid' }
+                    }
+                ],
+                responses: {
+                    '204': { description: 'Recette supprimée avec succès' },
+                    '404': { description: 'Recette non trouvée' }
+                }
+            }
+        },
+        '/serviceprediction/predictions/run': {
+            post: {
+                tags: ['Prédictions'],
+                summary: 'Lancer une prédiction',
+                description: 'Exécute une prédiction de revenus avec méthodes quantitatives (régression linéaire, facteurs saisonniers, neural network)',
+                requestBody: {
+                    required: true,
+                    content: {
+                        'application/json': {
+                            schema: { $ref: '#/components/schemas/PredictionRunDto' }
+                        }
+                    }
+                },
+                responses: {
+                    '201': {
+                        description: 'Prédiction créée et exécutée',
+                        content: {
+                            'application/json': {
+                                schema: { $ref: '#/components/schemas/Prediction' }
+                            }
+                        }
+                    },
+                    '400': { description: 'Paramètres invalides' }
+                }
+            }
         },
         '/serviceprediction/predictions': {
             get: {
-                tags: ['prediction'],
-                summary: 'Lister les previsions enregistrees',
+                tags: ['Prédictions'],
+                summary: 'Lister les prédictions',
+                description: 'Récupère l\'historique des prédictions enregistrées',
                 parameters: [
-                    { name: 'municipalityId', in: 'query', required: false, schema: { type: 'string' }, description: 'Filtrer par identifiant de municipalité' },
+                    {
+                        name: 'municipalityId',
+                        in: 'query',
+                        required: false,
+                        schema: { type: 'string' },
+                        description: 'Filtrer par municipalité'
+                    }
                 ],
-                responses: { '200': { description: 'OK' } },
-            },
+                responses: {
+                    '200': {
+                        description: 'Liste des prédictions',
+                        content: {
+                            'application/json': {
+                                schema: {
+                                    type: 'array',
+                                    items: { $ref: '#/components/schemas/Prediction' }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         },
         '/serviceprediction/simulations': {
-            post: { tags: ['simulation'], summary: 'Creer et executer une simulation (IA integree)', requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/CreateSimulationDto' } } } }, responses: { '201': { description: 'Simulation creee et enrichie' }, '400': { description: 'Requete invalide' } } },
-            get: {
-                tags: ['simulation'],
-                summary: 'Lister les simulations',
-                parameters: [
-                    { name: 'municipalityId', in: 'query', required: false, schema: { type: 'string' }, description: 'Filtrer par identifiant de municipalité' },
-                ],
-                responses: { '200': { description: 'OK' } },
+            post: {
+                tags: ['Simulations'],
+                summary: 'Créer une simulation',
+                description: 'Crée un scénario de simulation avec contextes automatiques (météo, économie, démographie)',
+                requestBody: {
+                    required: true,
+                    content: {
+                        'application/json': {
+                            schema: { $ref: '#/components/schemas/CreateSimulationDto' }
+                        }
+                    }
+                },
+                responses: {
+                    '201': {
+                        description: 'Simulation créée',
+                        content: {
+                            'application/json': {
+                                schema: { $ref: '#/components/schemas/Simulation' }
+                            }
+                        }
+                    },
+                    '400': { description: 'Données invalides' }
+                }
             },
+            get: {
+                tags: ['Simulations'],
+                summary: 'Lister les simulations',
+                description: 'Récupère toutes les simulations enregistrées',
+                parameters: [
+                    {
+                        name: 'municipalityId',
+                        in: 'query',
+                        required: false,
+                        schema: { type: 'string' },
+                        description: 'Filtrer par municipalité'
+                    }
+                ],
+                responses: {
+                    '200': {
+                        description: 'Liste des simulations',
+                        content: {
+                            'application/json': {
+                                schema: {
+                                    type: 'array',
+                                    items: { $ref: '#/components/schemas/Simulation' }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         },
-        '/serviceprediction/simulations/{id}': { get: { tags: ['simulation'], summary: 'Recuperer une simulation', parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }], responses: { '200': { description: 'OK' }, '404': { description: 'Non trouve' } } } },
-        '/serviceprediction/simulations/{id}/optimize': { post: { tags: ['optimization'], summary: 'Optimiser le timing pour une simulation donnee', parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }], responses: { '200': { description: 'Recommandations' }, '400': { description: 'Mauvaise requete' } } } },
-        '/serviceprediction/analysis-results/{id}/enrich': { post: { tags: ['ai'], summary: 'Enrichir un resultat (pour usage direct)', parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }], responses: { '200': { description: 'Analyse enrichie' }, '500': { description: 'Erreur IA' } } } },
+        '/serviceprediction/simulations/{id}': {
+            get: {
+                tags: ['Simulations'],
+                summary: 'Récupérer une simulation',
+                description: 'Obtient les détails d\'une simulation spécifique',
+                parameters: [
+                    {
+                        name: 'id',
+                        in: 'path',
+                        required: true,
+                        schema: { type: 'string', format: 'uuid' }
+                    }
+                ],
+                responses: {
+                    '200': {
+                        description: 'Détails de la simulation',
+                        content: {
+                            'application/json': {
+                                schema: { $ref: '#/components/schemas/Simulation' }
+                            }
+                        }
+                    },
+                    '404': { description: 'Simulation non trouvée' }
+                }
+            }
+        },
+        '/serviceprediction/markets': {
+            get: {
+                tags: ['Marchés'],
+                summary: 'Récupérer les marchés via OpenStreetMap',
+                description: 'Interroge l\'API Overpass pour obtenir les marketplaces dans une zone géographique',
+                parameters: [
+                    {
+                        name: 'city',
+                        in: 'query',
+                        required: false,
+                        schema: { type: 'string' },
+                        description: 'Nom de la ville'
+                    },
+                    {
+                        name: 'south',
+                        in: 'query',
+                        required: true,
+                        schema: { type: 'number' },
+                        description: 'Latitude sud (min)'
+                    },
+                    {
+                        name: 'west',
+                        in: 'query',
+                        required: true,
+                        schema: { type: 'number' },
+                        description: 'Longitude ouest (min)'
+                    },
+                    {
+                        name: 'north',
+                        in: 'query',
+                        required: true,
+                        schema: { type: 'number' },
+                        description: 'Latitude nord (max)'
+                    },
+                    {
+                        name: 'east',
+                        in: 'query',
+                        required: true,
+                        schema: { type: 'number' },
+                        description: 'Longitude est (max)'
+                    }
+                ],
+                responses: {
+                    '200': {
+                        description: 'Liste des marchés',
+                        content: {
+                            'application/json': {
+                                schema: {
+                                    type: 'array',
+                                    items: { $ref: '#/components/schemas/Marketplace' }
+                                }
+                            }
+                        }
+                    },
+                    '400': { description: 'Paramètres invalides' },
+                    '502': { description: 'Erreur API externe' }
+                }
+            }
+        },
+        '/serviceprediction/markets/stored': {
+            get: {
+                tags: ['Marchés'],
+                summary: 'Récupérer les marchés stockés localement',
+                description: 'Liste les marketplaces enregistrées dans la base de données',
+                parameters: [
+                    {
+                        name: 'city',
+                        in: 'query',
+                        required: false,
+                        schema: { type: 'string' }
+                    },
+                    {
+                        name: 'limit',
+                        in: 'query',
+                        required: false,
+                        schema: { type: 'integer' }
+                    }
+                ],
+                responses: {
+                    '200': {
+                        description: 'Marchés stockés',
+                        content: {
+                            'application/json': {
+                                schema: {
+                                    type: 'array',
+                                    items: { $ref: '#/components/schemas/Marketplace' }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        '/serviceprediction/places/bbox': {
+            get: {
+                tags: ['Marchés'],
+                summary: 'Obtenir le bounding box d\'une ville',
+                description: 'Utilise l\'API Nominatim pour récupérer les coordonnées géographiques d\'une ville',
+                parameters: [
+                    {
+                        name: 'city',
+                        in: 'query',
+                        required: true,
+                        schema: { type: 'string' },
+                        description: 'Nom de la ville (ex: Antananarivo)'
+                    }
+                ],
+                responses: {
+                    '200': {
+                        description: 'Bounding box de la ville',
+                        content: {
+                            'application/json': {
+                                schema: { $ref: '#/components/schemas/CityBBox' }
+                            }
+                        }
+                    },
+                    '404': { description: 'Ville non trouvée' }
+                }
+            }
+        },
+        '/serviceprediction/markets/by-city': {
+            get: {
+                tags: ['Marchés'],
+                summary: 'Récupérer les marchés par ville',
+                description: 'Combine bbox + markets pour obtenir automatiquement les marchés d\'une ville',
+                parameters: [
+                    {
+                        name: 'ville',
+                        in: 'query',
+                        required: true,
+                        schema: { type: 'string' },
+                        description: 'Nom de la ville'
+                    }
+                ],
+                responses: {
+                    '200': {
+                        description: 'Marchés de la ville',
+                        content: {
+                            'application/json': {
+                                schema: {
+                                    type: 'array',
+                                    items: { $ref: '#/components/schemas/MarketplaceNormalized' }
+                                }
+                            }
+                        }
+                    },
+                    '404': { description: 'Ville non trouvée' }
+                }
+            }
+        },
+        '/serviceprediction/markets/normalized': {
+            get: {
+                tags: ['Marchés'],
+                summary: 'Lister les marchés normalisés',
+                description: 'Retourne les marchés avec nom, ville et délimitation GeoJSON',
+                parameters: [
+                    {
+                        name: 'city',
+                        in: 'query',
+                        required: false,
+                        schema: { type: 'string' }
+                    }
+                ],
+                responses: {
+                    '200': {
+                        description: 'Marchés normalisés',
+                        content: {
+                            'application/json': {
+                                schema: {
+                                    type: 'array',
+                                    items: { $ref: '#/components/schemas/MarketplaceNormalized' }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        '/serviceprediction/analysis-results/{id}/enrich': {
+            post: {
+                tags: ['Optimisation'],
+                summary: 'Enrichir une analyse avec l\'IA',
+                description: 'Utilise Gemini AI pour générer une interprétation détaillée des résultats de simulation',
+                parameters: [
+                    {
+                        name: 'id',
+                        in: 'path',
+                        required: true,
+                        schema: { type: 'string', format: 'uuid' }
+                    }
+                ],
+                responses: {
+                    '200': {
+                        description: 'Analyse enrichie',
+                        content: {
+                            'application/json': {
+                                schema: { $ref: '#/components/schemas/AnalysisResult' }
+                            }
+                        }
+                    },
+                    '404': { description: 'Résultat non trouvé' },
+                    '500': { description: 'Erreur IA' }
+                }
+            }
+        },
+        '/serviceprediction/simulations/{id}/optimize': {
+            post: {
+                tags: ['Optimisation'],
+                summary: 'Optimiser le timing d\'une simulation',
+                description: 'Analyse et recommande le meilleur moment pour implémenter les changements',
+                parameters: [
+                    {
+                        name: 'id',
+                        in: 'path',
+                        required: true,
+                        schema: { type: 'string', format: 'uuid' }
+                    }
+                ],
+                responses: {
+                    '200': {
+                        description: 'Recommandations d\'optimisation',
+                        content: {
+                            'application/json': {
+                                schema: {
+                                    type: 'object',
+                                    properties: {
+                                        bestMonth: { type: 'string' },
+                                        reasoning: { type: 'string' },
+                                        score: { type: 'number' }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    '404': { description: 'Simulation non trouvée' }
+                }
+            }
+        },
+        '/serviceprediction/revenue-validation': {
+            post: {
+                tags: ['Légalité'],
+                summary: 'Valider et normaliser une recette locale',
+                description: 'Analyse une recette proposée par rapport au PCOP 2006 CTD et au Code des Impôts (LFI 2025). Retourne le nom normalisé et une description structurée incluant la base légale, la nomenclature comptable, l\'assiette, les taux et les modalités de recouvrement.',
+                requestBody: {
+                    required: true,
+                    content: {
+                        'application/json': {
+                            schema: { $ref: '#/components/schemas/ValidateRevenueRequestDto' },
+                            examples: {
+                                ifpb: {
+                                    summary: 'Abréviation IFPB',
+                                    value: {
+                                        name: 'IFPB',
+                                        municipality_id: 'antananarivo-001'
+                                    }
+                                },
+                                taxe_marche: {
+                                    summary: 'Taxe marché municipal',
+                                    value: {
+                                        name: 'Taxe marché municipal',
+                                        municipality_id: 'fianarantsoa-001'
+                                    }
+                                },
+                                loyer: {
+                                    summary: 'Recette domaniale',
+                                    value: {
+                                        name: 'Loyer boutique',
+                                        municipality_id: 'mahajanga-001'
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                responses: {
+                    '200': {
+                        description: 'Validation effectuée avec succès',
+                        content: {
+                            'application/json': {
+                                schema: { $ref: '#/components/schemas/ValidateRevenueResponseDto' },
+                                examples: {
+                                    valid: {
+                                        summary: 'Recette valide',
+                                        value: {
+                                            name: 'Impôt Foncier sur la Propriété Bâtie (IFPB)',
+                                            description: '- Base légale : Code Général des Impôts...\n- Nomenclature PCOP : Classe 6...',
+                                            municipality_id: 'antananarivo-001'
+                                        }
+                                    },
+                                    invalid: {
+                                        summary: 'Recette non conforme',
+                                        value: {
+                                            name: null,
+                                            description: 'ERREUR : La recette fournie ne correspond à aucune recette...',
+                                            municipality_id: 'antananarivo-001'
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    '400': { description: 'Données d\'entrée invalides' },
+                    '500': { description: 'Erreur interne du serveur' }
+                }
+            }
+        },
+        '/serviceprediction/revenue-validation/history': {
+            get: {
+                tags: ['Légalité'],
+                summary: 'Récupérer l\'historique des validations',
+                description: 'Retourne l\'historique des validations de recettes, optionnellement filtré par municipalité',
+                parameters: [
+                    {
+                        name: 'municipalityId',
+                        in: 'query',
+                        required: false,
+                        schema: { type: 'string' },
+                        description: 'Identifiant de la municipalité pour filtrer les résultats'
+                    }
+                ],
+                responses: {
+                    '200': {
+                        description: 'Historique récupéré avec succès',
+                        content: {
+                            'application/json': {
+                                schema: {
+                                    type: 'array',
+                                    items: { $ref: '#/components/schemas/RevenueValidation' }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        '/serviceprediction/revenue-validation/{id}': {
+            get: {
+                tags: ['Légalité'],
+                summary: 'Récupérer une validation spécifique',
+                description: 'Retourne les détails d\'une validation de recette par son identifiant',
+                parameters: [
+                    {
+                        name: 'id',
+                        in: 'path',
+                        required: true,
+                        schema: { type: 'string', format: 'uuid' },
+                        description: 'Identifiant unique de la validation'
+                    }
+                ],
+                responses: {
+                    '200': {
+                        description: 'Validation trouvée',
+                        content: {
+                            'application/json': {
+                                schema: { $ref: '#/components/schemas/RevenueValidation' }
+                            }
+                        }
+                    },
+                    '404': { description: 'Validation non trouvée' }
+                }
+            }
+        }
     },
     components: {
         schemas: {
+            Revenue: {
+                type: 'object',
+                properties: {
+                    id: { type: 'string', format: 'uuid' },
+                    date: { type: 'string', format: 'date' },
+                    amount: { type: 'number', format: 'double' },
+                    source: { type: 'string' },
+                    name: { type: 'string' },
+                    parameters: { type: 'object' },
+                    municipalityId: { type: 'string' },
+                    createdAt: { type: 'string', format: 'date-time' },
+                    updatedAt: { type: 'string', format: 'date-time' }
+                }
+            },
             CreateRevenueDto: {
                 type: 'object',
-                properties: { amount: { type: 'number' }, date: { type: 'string', format: 'date' }, category: { type: 'string' }, source: { type: 'string' }, parameters: { type: 'object' } },
-                required: ['amount', 'date', 'category'],
-                example: { amount: 1500.5, date: '2025-01-15', category: 'taxe', source: 'guichet' },
+                required: ['amount', 'date'],
+                properties: {
+                    amount: { type: 'number', example: 1500.50 },
+                    date: { type: 'string', format: 'date', example: '2025-01-15' },
+                    source: { type: 'string', example: 'guichet' },
+                    name: { type: 'string', example: 'Taxe marché' },
+                    parameters: { type: 'object' },
+                    municipalityId: { type: 'string' }
+                }
             },
-            UpdateRevenueDto: { type: 'object', properties: { amount: { type: 'number' }, date: { type: 'string', format: 'date' }, category: { type: 'string' }, source: { type: 'string' }, parameters: { type: 'object' } } },
-            PredictionRunDto: { type: 'object', properties: { municipalityId: { type: 'string' }, months: { type: 'integer' }, years: { type: 'integer' }, period: { type: 'string', enum: ['monthly', 'annual', 'both'] } }, required: ['municipalityId'] },
+            UpdateRevenueDto: {
+                type: 'object',
+                properties: {
+                    amount: { type: 'number' },
+                    date: { type: 'string', format: 'date' },
+                    source: { type: 'string' },
+                    name: { type: 'string' },
+                    parameters: { type: 'object' }
+                }
+            },
+            Prediction: {
+                type: 'object',
+                properties: {
+                    id: { type: 'string', format: 'uuid' },
+                    municipalityId: { type: 'string' },
+                    predictions: { type: 'object' },
+                    methods: {
+                        type: 'object',
+                        properties: {
+                            linearRegression: { type: 'object' },
+                            seasonalFactors: { type: 'object' },
+                            neuralNetwork: { type: 'object' }
+                        }
+                    },
+                    createdAt: { type: 'string', format: 'date-time' }
+                }
+            },
+            PredictionRunDto: {
+                type: 'object',
+                required: ['municipalityId'],
+                properties: {
+                    municipalityId: { type: 'string' },
+                    months: { type: 'integer', default: 12 },
+                    years: { type: 'integer', default: 1 },
+                    period: { type: 'string', enum: ['monthly', 'annual', 'both'], default: 'both' }
+                }
+            },
+            Simulation: {
+                type: 'object',
+                properties: {
+                    id: { type: 'string', format: 'uuid' },
+                    parameters: { type: 'object' },
+                    status: { type: 'string' },
+                    weatherContext: { type: 'object' },
+                    economicContext: { type: 'object' },
+                    demographicContext: { type: 'object' },
+                    createdAt: { type: 'string', format: 'date-time' }
+                }
+            },
             CreateSimulationDto: {
                 type: 'object',
-                description: 'Creer une simulation avec contextes injectes (weather, economic, demographic).',
+                required: ['revenueId', 'newAmount', 'frequency', 'durationMonths', 'city'],
                 properties: {
                     revenueId: { type: 'string', format: 'uuid' },
                     newAmount: { type: 'number' },
-                    devise: { type: 'string', description: "Currency code for the simulation results (e.g. 'MGA'). If omitted, defaults to 'MGA' or process.env.DEFAULT_CURRENCY." },
-                    city: { type: 'string', description: 'Nom de la ville utilisée pour rechercher automatiquement les contextes (ex: Antananarivo).' },
+                    devise: { type: 'string', default: 'MGA' },
+                    city: { type: 'string', example: 'Antananarivo' },
                     frequency: { type: 'string', enum: ['monthly', 'annual'] },
                     durationMonths: { type: 'integer' },
                     startDate: { type: 'string', format: 'date' },
                     note: { type: 'string' },
-                    weatherContext: { type: 'object', description: 'Contexte meteo (temp, precipitation, events, ...) — optionnel, rempli automatiquement si absent.' },
-                    economicContext: { type: 'object', description: 'Contexte economique (gdp, inflation, revenues, ...) — optionnel, rempli automatiquement si absent.' },
-                    demographicContext: { type: 'object', description: 'Contexte demographique (population, medianAge, density, ...) — optionnel, rempli automatiquement si absent.' },
-                    seasonContext: { type: 'object', description: 'Contexte saisonnier — optionnel, inferé automatiquement si absent.' },
-                },
-                required: ['revenueId', 'newAmount', 'frequency', 'durationMonths', 'city'],
-                example: { revenueId: 'e8d1e76a-beff-4d61-84eb-cf46039fbbbf', newAmount: 2000, devise: 'MGA', frequency: 'monthly', durationMonths: 12, startDate: '2025-06-01', note: 'Simulation automatique avec contexte réel', city: 'Antananarivo' },
-            },
-            Simulation: { type: 'object', properties: { id: { type: 'string' }, parameters: { type: 'object' }, status: { type: 'string' }, weatherContext: { type: 'object' }, economicContext: { type: 'object' }, demographicContext: { type: 'object' }, createdAt: { type: 'string', format: 'date-time' } } },
-            AnalysisResult: { type: 'object', properties: { id: { type: 'string' }, simulationId: { type: 'string' }, resultData: { type: 'object' }, summary: { type: 'string' }, createdAt: { type: 'string', format: 'date-time' } } },
-            Transaction: { type: 'object', properties: { transactionId: { type: 'string' }, amount: { type: 'number' }, date: { type: 'string', format: 'date' }, status: { type: 'string' } } },
-            SyncReport: {
-                type: 'object',
-                properties: {
-                    fetched: { type: 'integer', description: 'Nombre de transactions recuperees depuis le provider externe' },
-                    inserted: { type: 'integer', description: 'Nombre de nouveaux revenus inseres en base' },
-                    duplicates: { type: 'integer', description: 'Nombre de doublons ignores' },
-                    errors: { type: 'array', items: { type: 'string' }, description: 'Liste des erreurs rencontrees durant la synchronisation' },
-                },
-            },
-            CreateRevenueWithSyncResponse: {
-                type: 'object',
-                properties: {
-                    created: { $ref: '#/components/schemas/Revenue' },
-                    syncReport: { $ref: '#/components/schemas/SyncReport' }
+                    weatherContext: { type: 'object' },
+                    economicContext: { type: 'object' },
+                    demographicContext: { type: 'object' }
                 }
             },
-            SyncRevenuesDto: {
+            AnalysisResult: {
                 type: 'object',
                 properties: {
-                    municipality_id: { type: 'string', description: 'Identifiant de la municipalité pour laquelle lancer la synchronisation' }
-                },
-                required: ['municipality_id'],
-                example: { municipality_id: '268805260000' }
-            },
-            Revenue: {
-                type: 'object',
-                properties: {
-                    id: { type: 'string' },
-                    date: { type: 'string', format: 'date' },
-                    amount: { type: 'number' },
-                    source: { type: 'string' },
-                    category: { type: 'string' },
-                    municipalityId: { type: 'string' },
-                    parameters: { type: 'object' },
+                    id: { type: 'string', format: 'uuid' },
+                    simulationId: { type: 'string', format: 'uuid' },
+                    resultData: { type: 'object' },
+                    summary: { type: 'string' },
+                    interpretation: { type: 'string' },
+                    risks: { type: 'array', items: { type: 'object' } },
+                    opportunities: { type: 'array', items: { type: 'object' } },
                     createdAt: { type: 'string', format: 'date-time' }
                 }
             },
-            TransactionProviderResponse: { type: 'object', properties: { message: { type: 'string' }, status: { type: 'number' }, data: { type: 'array', items: { $ref: '#/components/schemas/Transaction' } } } },
             Marketplace: {
                 type: 'object',
                 properties: {
@@ -271,8 +765,8 @@ const swaggerSpec = {
                     longitude: { type: 'number' },
                     tags: { type: 'object' },
                     city: { type: 'string' },
-                    fetched_at: { type: 'string', format: 'date-time' },
-                },
+                    fetched_at: { type: 'string', format: 'date-time' }
+                }
             },
             CityBBox: {
                 type: 'object',
@@ -281,8 +775,8 @@ const swaggerSpec = {
                     west: { type: 'number' },
                     north: { type: 'number' },
                     east: { type: 'number' },
-                    display_name: { type: 'string' },
-                },
+                    display_name: { type: 'string' }
+                }
             },
             MarketplaceNormalized: {
                 type: 'object',
@@ -293,13 +787,89 @@ const swaggerSpec = {
                         type: 'object',
                         properties: {
                             type: { type: 'string', example: 'Polygon' },
-                            coordinates: { type: 'array' },
-                        },
-                    },
-                },
+                            coordinates: { type: 'array' }
+                        }
+                    }
+                }
             },
-        },
-    },
+            ValidateRevenueRequestDto: {
+                type: 'object',
+                required: ['name', 'municipality_id'],
+                properties: {
+                    name: {
+                        type: 'string',
+                        description: 'Nom de la recette proposée par l\'utilisateur',
+                        example: 'IFPB'
+                    },
+                    municipality_id: {
+                        type: 'string',
+                        description: 'Identifiant de la municipalité',
+                        example: 'municipality-uuid-123'
+                    }
+                }
+            },
+            ValidateRevenueResponseDto: {
+                type: 'object',
+                properties: {
+                    name: {
+                        type: 'string',
+                        nullable: true,
+                        description: 'Nom officiel normalisé selon PCOP/LFI, ou null si non conforme',
+                        example: 'Impôt Foncier sur la Propriété Bâtie (IFPB)'
+                    },
+                    description: {
+                        type: 'string',
+                        description: 'Description structurée (base légale, nomenclature PCOP, nature, assiette, taux, modalités)',
+                        example: '- Base légale : Code des Impôts art. 123...'
+                    },
+                    municipality_id: {
+                        type: 'string',
+                        description: 'Identifiant de la municipalité (recopié)',
+                        example: 'municipality-uuid-123'
+                    }
+                }
+            },
+            RevenueValidation: {
+                type: 'object',
+                properties: {
+                    id: { type: 'string', format: 'uuid' },
+                    originalName: { type: 'string' },
+                    normalizedName: { type: 'string', nullable: true },
+                    description: { type: 'string', nullable: true },
+                    municipalityId: { type: 'string', nullable: true },
+                    status: {
+                        type: 'string',
+                        enum: ['valid', 'invalid', 'ambiguous', 'pending', 'error']
+                    },
+                    pcopReference: {
+                        type: 'object',
+                        nullable: true,
+                        properties: {
+                            classe: { type: 'string' },
+                            chapitre: { type: 'string' },
+                            compte: { type: 'string' }
+                        }
+                    },
+                    legalReference: {
+                        type: 'object',
+                        nullable: true,
+                        properties: {
+                            articles: { type: 'array', items: { type: 'string' } },
+                            loi: { type: 'string' }
+                        }
+                    },
+                    revenueType: { type: 'string', nullable: true },
+                    assiette: { type: 'string', nullable: true },
+                    taux: { type: 'string', nullable: true },
+                    modalitesRecouvrement: { type: 'string', nullable: true },
+                    conditionsApplication: { type: 'string', nullable: true },
+                    observations: { type: 'string', nullable: true },
+                    createdAt: { type: 'string', format: 'date-time' },
+                    updatedAt: { type: 'string', format: 'date-time' }
+                }
+            }
+        }
+    }
 };
 exports.default = swaggerSpec;
 //# sourceMappingURL=swagger.js.map

@@ -68,6 +68,7 @@ __decorate([
     __metadata("design:type", Object)
 ], CreateSimulationDto.prototype, "seasonContext", void 0);
 __decorate([
+    (0, class_validator_1.IsOptional)(),
     (0, class_validator_1.IsString)(),
     __metadata("design:type", String)
 ], CreateSimulationDto.prototype, "city", void 0);

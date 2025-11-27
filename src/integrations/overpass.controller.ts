@@ -135,9 +135,9 @@ router.get('/markets/by-city', async (req: Request, res: Response) => {
 
     // Gérer les erreurs de géolocalisation avec des codes HTTP appropriés
     if (!bboxResult.success) {
-      const { error } = bboxResult;
+      const error = 'error' in bboxResult ? bboxResult.error : null;
 
-      switch (error.type) {
+      switch (error?.type) {
         case 'NOT_FOUND':
           return res.status(404).json({
             error: 'CITY_NOT_FOUND',
