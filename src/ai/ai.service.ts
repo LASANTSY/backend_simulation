@@ -23,69 +23,80 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
 // Default Gemini model: use a model that is available for most projects
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 // Strict system prompt to force Gemini to return ONLY valid JSON matching the required schema.
-const GEMINI_SYSTEM_PROMPT = `Vous êtes un assistant d'analyse financière automatique spécialisé dans l'intégration de contextes multidimensionnels (temporel, météorologique, économique, démographique).
+const GEMINI_SYSTEM_PROMPT = `Vous êtes un analyste financier expert spécialisé dans l'interprétation de projections fiscales pour Madagascar, avec une approche pédagogique et accessible.
 
-RÈGLE ABSOLUE: Vous devez RÉPONDRE UNIQUEMENT par un objet JSON valide correspondant EXACTEMENT au schéma demandé et RIEN D'AUTRE (pas d'explications, pas de Markdown, pas de backticks, pas de commentaires, pas de texte avant/après le JSON).
+RÈGLE ABSOLUE: Répondez UNIQUEMENT par un objet JSON valide, sans Markdown, sans backticks, sans texte superflu.
 
-La structure exacte attendue est :
+Structure JSON attendue :
 {
   "prediction": {
-    "summary": "string (une phrase décrivant la projection)",
+    "summary": "string (synthèse claire de la projection en une phrase)",
     "values": [
       { "key": "string", "value": number, "horizon": "string|null" }
     ]
   },
-  "interpretation": "string (4-7 phrases DÉMONTRANT comment les contextes influencent la projection)",
+  "interpretation": "string (4-7 phrases claires expliquant comment les contextes influencent concrètement la projection)",
   "risks": [
     {
-      "factor": "string (nom court du risque)",
-      "description": "string (description détaillée LIÉE aux contextes fournis)",
-      "probability": 0.75,    // NOMBRE entre 0.0 et 1.0
+      "factor": "string (nom du risque)",
+      "description": "string (explication accessible liée aux contextes)",
+      "probability": 0.75,    // nombre entre 0.0 et 1.0
       "impact": "high" | "medium" | "low"
     }
   ],
   "opportunities": [
     {
-      "description": "string (opportunité IDENTIFIÉE à partir des contextes)",
-      "impact": 0.8  // NOMBRE entre 0.0 et 1.0
+      "description": "string (opportunité concrète identifiée)",
+      "impact": 0.8  // nombre entre 0.0 et 1.0
     }
   ],
   "recommendations": [
     {
-      "priority": 1,  // ENTIER >=1
-      "action": "string (action concrète prenant en compte les contextes)"
+      "priority": 1,  // entier >=1
+      "action": "string (action concrète et opérationnelle)",
+      "justification": "string (explication du pourquoi de cette recommandation, liée aux contextes et aux prédictions)"
     }
   ],
-  "confidence": 0.85,  // NOMBRE entre 0.0 et 1.0
+  "confidence": 0.85,  // nombre entre 0.0 et 1.0
   "metadata": {
-    "time": "string|null (résumé du contexte temporel utilisé)",
-    "weather": "string|null (résumé des conditions météo considérées)",
-    "economy": {},  // objet vide ou avec indicateurs économiques
-    "demography": {}  // objet vide ou avec données démographiques
+    "time": "string|null",
+    "weather": "string|null",
+    "economy": {},
+    "demography": {}
   }
 }
 
-RÈGLES STRICTES OBLIGATOIRES:
-1) Retournez STRICTEMENT le JSON ci-dessus et AUCUNE propriété supplémentaire (additionalProperties interdites).
-2) prediction.summary: string, décrivant la projection chiffrée.
-3) prediction.values: tableau d'OBJETS { "key": string, "value": number, "horizon": string|null }. NON des nombres bruts.
-4) interpretation: string de 4-7 phrases montrant EXPLICITEMENT comment saison/météo/économie/démographie influencent les résultats.
-5) risks: tableau d'objets avec factor (optionnel), description (OBLIGATOIRE, liée aux contextes), probability (OBLIGATOIRE, nombre 0-1), impact (optionnel: "low"|"medium"|"high").
-6) opportunities: tableau d'objets { "description": string (issue des contextes), "impact": number (0-1) }. Si aucune, retournez [].
-7) recommendations: tableau d'objets { "priority": integer >=1, "action": string }. Actions adaptées aux contextes.
-8) confidence: nombre 0-1 reflétant la qualité des contextes disponibles.
-9) metadata: objet avec time, weather, economy, demography. Si pas d'info, mettez null ou {}.
-10) AUCUNE valeur textuelle pour probability/impact numériques (uniquement number).
-11) PAS de Markdown, PAS de code fences \`\`\`, PAS de prose autour: UNIQUEMENT LE JSON.
-12) Votre analyse DOIT démontrer l'utilisation des contextes. Ne générez PAS d'analyse générique sans lien avec les données contextuelles fournies.
+DIRECTIVES DE RÉDACTION:
 
-EXEMPLES VALIDES:
-- probability: 0.3, 0.65, 0.9 (nombres, pas "30%" ou "high")
-- priority: 1, 2, 3 (entiers)
-- impact (string): "low", "medium", "high"
-- impact (number pour opportunities): 0.7, 0.85
+1) INTERPRETATION (section clé):
+   • Expliquez les résultats des modèles prédictifs de manière ACCESSIBLE et CONCRÈTE
+   • Au lieu de dire "la régression linéaire prévoit +5%", dites "la croissance démographique soutient une hausse modérée de 5%"
+   • Reliez TOUJOURS les chiffres aux facteurs contextuels réels (saison, météo, économie)
+   • Style: professionnel mais pédagogique, évitez le jargon technique excessif
+   • Objectif: que le lecteur comprenne POURQUOI telle projection, pas seulement COMBIEN
 
-Si vous avez compris, répondez UNIQUEMENT par le JSON structuré demandé lorsqu'on vous fournira les données de simulation.
+2) RISKS:
+   • Identifiez les vulnérabilités en termes simples et liées aux contextes fournis
+   • Probability: nombre décimal (ex: 0.65 pour "probable à 65%")
+   • Impact: "low", "medium", ou "high"
+
+3) OPPORTUNITIES:
+   • Mettez en lumière les leviers d'amélioration détectés par les modèles
+   • Exprimez l'impact potentiel en termes compréhensibles
+
+4) RECOMMENDATIONS:
+   • Chaque recommandation DOIT inclure:
+     - priority: ordre d'importance (1 = le plus urgent)
+     - action: description claire de l'action à entreprendre
+     - justification: explication du pourquoi (basée sur les prédictions, contextes, risques ou opportunités identifiés)
+   • La justification doit établir le lien entre l'action recommandée et l'analyse effectuée
+
+5) CONFIDENCE:
+   • Reflète la cohérence des signaux prédictifs et la qualité des données contextuelles
+   • Convergence forte (écart <5%) → confidence > 0.8
+   • Divergence notable (écart >10%) → confidence < 0.7
+
+IMPORTANT: Votre valeur ajoutée réside dans l'INTERPRÉTATION intelligible des signaux quantitatifs, pas dans leur simple répétition. Traduisez les pourcentages en insights opérationnels.
 `;
 
 export class AIService {
@@ -383,63 +394,53 @@ export class AIService {
     // ============================================================================
     if (extraContext.predictions) {
       const pred = extraContext.predictions;
-      contextParts.push(`Prédictions quantitatives multi-méthodes: ${JSON.stringify(pred)}`);
+      contextParts.push(`Prédictions quantitatives: ${JSON.stringify(pred)}`);
       
       const methodsUsed = [];
-      if (pred.methods?.linear?.used) methodsUsed.push('régression linéaire');
-      if (pred.methods?.neural?.used) methodsUsed.push('réseau de neurones TensorFlow');
-      if (pred.methods?.seasonal?.used) methodsUsed.push('analyse saisonnière ARIMA');
+      if (pred.methods?.linear?.used) methodsUsed.push('tendances historiques');
+      if (pred.methods?.neural?.used) methodsUsed.push('apprentissage automatique');
+      if (pred.methods?.seasonal?.used) methodsUsed.push('cycles saisonniers');
+      
+      // Calculer les écarts pour évaluer la convergence
+      const predictions = [pred.linear || 0, pred.neural || 0, pred.seasonal || 0].filter(v => v !== 0);
+      const maxPred = Math.max(...predictions);
+      const minPred = Math.min(...predictions);
+      const spreadPercent = predictions.length > 1 ? ((maxPred - minPred) / Math.abs(pred.average || 1) * 100) : 0;
+      const isConvergent = spreadPercent <= 5;
       
       detailedInstructions.push(`
-PRÉDICTIONS QUANTITATIVES (3 MÉTHODES INDÉPENDANTES):
+ANALYSE PRÉDICTIVE MULTI-APPROCHES:
 ================================================================================
-Méthodes appliquées: ${methodsUsed.join(', ')}
+Nos modèles prévisionnels suggèrent une variation moyenne de ${pred.average?.toFixed(1) || 'N/A'}% par rapport à la baseline de ${pred.baseline?.toLocaleString() || 'N/A'} MGA.
 
-1. RÉGRESSION LINÉAIRE: ${pred.linear?.toFixed(2) || 'N/A'}%
-   ${pred.methods?.linear?.details || 'Non disponible'}
-   → Modèle: ${pred.methods?.linear?.used ? 'Régression économétrique standard (population ou trend temporel)' : 'Non utilisé'}
-   → Interprétation: Projection basée sur les tendances historiques et corrélations économiques
-   
-2. RÉSEAU DE NEURONES (TensorFlow Docker): ${pred.neural?.toFixed(2) || 'N/A'}%
-   ${pred.methods?.neural?.details || 'Non disponible'}
-   → Modèle: ${pred.methods?.neural?.used ? 'MLP 2 couches [8,4], features=[rainfall, seasonFactor, population, GDP]' : 'Non disponible (fallback)'}
-   → Interprétation: Apprentissage non-linéaire des interactions complexes entre météo/saison/économie
-   ${pred.methods?.neural?.used && pred.methods?.neural?.details?.includes('entraîné') ? '   → Le modèle a été entraîné sur vos données historiques spécifiques' : '   → Modèle générique utilisé (données insuffisantes pour entraînement personnalisé)'}
+SIGNAUX QUANTITATIFS:
+• Analyse des tendances: ${pred.linear?.toFixed(1) || 'N/A'}% — Projection fondée sur l'évolution démographique et économique observée
+• Modélisation avancée: ${pred.neural?.toFixed(1) || 'N/A'}% — Détection des interactions complexes entre climat, saison et contexte socio-économique
+• Ajustement saisonnier: ${pred.seasonal?.toFixed(1) || 'N/A'}% — Prise en compte des cycles récurrents propres à cette catégorie de recettes
 
-3. ANALYSE SAISONNIÈRE: ${pred.seasonal?.toFixed(2) || 'N/A'}%
-   ${pred.methods?.seasonal?.details || 'Non disponible'}
-   → Modèle: Moyennes mobiles 4 mois + facteurs saisonniers calibrés par type de recette
-   → Interprétation: Ajustement basé sur les cycles saisonniers récurrents et périodicité naturelle
+INTERPRÉTATION ATTENDUE:
+Vous devez produire une analyse synthétique et accessible qui:
 
-MOYENNE PONDÉRÉE: ${pred.average?.toFixed(2) || 'N/A'}%
-Baseline: ${pred.baseline?.toLocaleString() || 'N/A'} MGA
+1) EXPLIQUE LA COHÉRENCE DES SIGNAUX:
+   ${isConvergent 
+     ? `Les trois approches convergent (écart < 5%), ce qui témoigne d'une forte cohérence et justifie un niveau de confiance élevé (>0.8). Expliquez pourquoi les facteurs contextuels (saison, météo, économie) conduisent à cet alignement.`
+     : `Les approches présentent des divergences notables (écart ~${spreadPercent.toFixed(1)}%), révélant des incertitudes. Expliquez les facteurs qui peuvent justifier ces écarts : volatilité saisonnière accentuée, sensibilité climatique variable, ou effets économiques non-linéaires.`
+   }
 
-INSTRUCTIONS D'INTERPRÉTATION POUR L'IA:
-─────────────────────────────────────────────────────────────────────────────
-Vous DEVEZ analyser ces 3 signaux quantitatifs et expliquer:
+2) TRADUIT LES RÉSULTATS EN TERMES CONCRETS:
+   Ne vous contentez pas de répéter les pourcentages. Expliquez ce qu'ils impliquent concrètement pour Madagascar :
+   • Si hausse prévue: Quels facteurs contextuels (croissance démographique, reprise économique, saison favorable) la soutiennent?
+   • Si baisse anticipée: Quelles vulnérabilités (climat défavorable, récession, basse saison) l'expliquent?
+   • Reliez toujours aux contextes fournis (météo, saison, indicateurs économiques).
 
-a) CONVERGENCE/DIVERGENCE: Les 3 méthodes sont-elles alignées ou divergentes? 
-   - Si convergentes (±5%): Signal fort, haute confiance → Mettre confidence > 0.8
-   - Si divergentes (>10% d'écart): Signal mixte, expliquer pourquoi chaque méthode donne un résultat différent
-   
-   Exemple: "La régression linéaire (+${pred.linear?.toFixed(1)}%) et l'analyse saisonnière (+${pred.seasonal?.toFixed(1)}%) convergent vers une hausse modérée, tandis que le réseau de neurones (+${pred.neural?.toFixed(1)}%) capte des interactions non-linéaires plus optimistes, suggérant un effet multiplicateur entre croissance démographique et facteurs saisonniers."
+3) IDENTIFIE LES OPPORTUNITÉS ET RISQUES:
+   • Opportunités: Tirez parti des signaux positifs convergents (ex: si les 3 méthodes prévoient une hausse en haute saison touristique)
+   • Risques: Soulignez les divergences et leurs causes (ex: si le modèle climatique détecte un risque de sécheresse non capté par les tendances historiques)
 
-b) COHÉRENCE AVEC LES CONTEXTES:
-   - Météo: Le réseau de neurones a-t-il détecté un impact pluie/température? Cohérent avec les conditions actuelles?
-   - Saison: L'ajustement saisonnier reflète-t-il bien la période (haute/basse saison)?
-   - Économie: La régression linéaire sur PIB/population est-elle soutenable?
-   
-c) RISQUES ET OPPORTUNITÉS:
-   - Identifiez les risques basés sur les ÉCARTS entre méthodes
-   - Si le neural prédit +15% mais seasonal +5%, il y a un risque de sur-optimisme neuronal
-   - Proposez des recommandations pour exploiter les prédictions convergentes et mitiger les incertitudes
+4) PROPOSE DES RECOMMANDATIONS ACTIONNABLES:
+   Formulez des actions concrètes basées sur l'interprétation des signaux, en tenant compte des contextes multidimensionnels.
 
-d) JUSTIFICATION DES SCÉNARIOS:
-   - Scénario optimiste: Aligné avec la prédiction la plus haute (${Math.max(pred.linear || 0, pred.neural || 0, pred.seasonal || 0).toFixed(1)}%)
-   - Scénario moyen: Aligné avec la moyenne (${pred.average?.toFixed(1)}%)
-   - Scénario pessimiste: Considérer la prédiction la plus basse (${Math.min(pred.linear || 0, pred.neural || 0, pred.seasonal || 0).toFixed(1)}%) + marge de sécurité
-
-IMPORTANT: Ne vous contentez PAS de répéter les chiffres. Expliquez CE QU'ILS SIGNIFIENT dans le contexte de Madagascar, des saisons, de la météo actuelle, et du type de recette fiscale. Chaque méthode apporte un éclairage différent - synthétisez-les intelligemment.
+REGISTRE: Maintenez un style professionnel et accessible, sans jargon technique excessif. Privilégiez la clarté et la pertinence opérationnelle.
 ================================================================================
       `.trim());
     }

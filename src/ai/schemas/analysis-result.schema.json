@@ -58,10 +58,11 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["action", "priority"],
+        "required": ["action", "priority", "justification"],
         "properties": {
           "action": { "type": "string" },
-          "priority": { "type": "integer", "minimum": 1 }
+          "priority": { "type": "integer", "minimum": 1 },
+          "justification": { "type": "string" }
         }
       }
     },
