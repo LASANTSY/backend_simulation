@@ -20,7 +20,7 @@
             "properties": {
               "key": { "type": "string" },
               "value": { "type": "number" },
-              "horizon": { "type": "string" }
+              "horizon": { "type": ["string", "null"] }
             }
           }
         }

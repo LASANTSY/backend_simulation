@@ -15,13 +15,20 @@ import * as dotenv from 'dotenv';
 
 dotenv.config();
 
-const AI_PROVIDER = process.env.AI_PROVIDER || 'gemini';
+const AI_PROVIDER = process.env.AI_PROVIDER || 'groq';
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
 const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4';
 const OPENAI_FALLBACK_MODEL = process.env.OPENAI_FALLBACK_MODEL || 'gpt-3.5-turbo';
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
-// Default Gemini model: use a model that is available for most projects
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-1.5-flash';
+const GROQ_API_KEY = process.env.GROQ_API_KEY || '';
+const GROQ_MODEL = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
+const GROQ_AVAILABLE_MODELS = [
+  'llama-3.3-70b-versatile',  // Recommandé (remplace 3.1-70b)
+  'llama-3.1-8b-instant',     // Rapide
+  'mixtral-8x7b-32768',       // Contexte large
+  'gemma2-9b-it'              // Compact
+];
 // Strict system prompt to force Gemini to return ONLY valid JSON matching the required schema.
 const GEMINI_SYSTEM_PROMPT = `Vous êtes un analyste financier expert spécialisé dans l'interprétation de projections fiscales pour Madagascar, avec une approche pédagogique et accessible.
 
@@ -122,7 +129,17 @@ export class AIService {
         console.warn('OPENAI_API_KEY not set; AI calls will fail until configured.');
       }
       this.client = new OpenAI({ apiKey: OPENAI_API_KEY });
+    } else if (AI_PROVIDER === 'groq') {
+      if (!GROQ_API_KEY) {
+        console.warn('GROQ_API_KEY not set; Groq calls will fail until configured.');
+      }
+      // Groq uses OpenAI-compatible API
+      this.client = new OpenAI({ 
+        apiKey: GROQ_API_KEY,
+        baseURL: 'https://api.groq.com/openai/v1'
+      });
     } else if (AI_PROVIDER === 'gemini') {
+      const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
       if (!GEMINI_API_KEY) {
         console.warn('GEMINI_API_KEY not set; Gemini calls will fail until configured.');
       }
@@ -293,11 +310,19 @@ export class AIService {
   // Retry helper: given an initial raw text and a model caller that accepts a prompt and returns raw text,
   // attempt up to `retries` times to get a valid JSON matching the schema. Increments metric on failures.
   private async retryValidateAndRepair(initialText: string, prompt: string, modelCaller: (p: string) => Promise<string>, retries = 3) {
-    let check = AIService.validateLLMOutputRaw(initialText);
+    // Normalize French impact values to English enum values
+    let normalizedText = initialText
+      .replace(/"impact":\s*"élevé"/gi, '"impact": "high"')
+      .replace(/"impact":\s*"moyen"/gi, '"impact": "medium"')
+      .replace(/"impact":\s*"faible"/gi, '"impact": "low"');
+    
+    let check = AIService.validateLLMOutputRaw(normalizedText);
     if (check.valid && check.parsed) return check.parsed;
+    
     // first failure
     console.error('LLM validation failed for initial response:', { errors: check.errors, raw: initialText });
     llmValidationFailures.inc();
+    
     // attempt retries
     for (let i = 0; i < retries; i++) {
       const improved = `${prompt}\n\nIMPORTANT: respond with valid JSON matching this schema: ${JSON.stringify(AIService._schema || {})}`;
@@ -308,7 +333,13 @@ export class AIService {
           llmValidationFailures.inc();
           continue;
         }
-        const res = AIService.validateLLMOutputRaw(text);
+        // Normalize again
+        const normalizedRetry = text
+          .replace(/"impact":\s*"élevé"/gi, '"impact": "high"')
+          .replace(/"impact":\s*"moyen"/gi, '"impact": "medium"')
+          .replace(/"impact":\s*"faible"/gi, '"impact": "low"');
+        
+        const res = AIService.validateLLMOutputRaw(normalizedRetry);
         if (res.valid && res.parsed) return res.parsed;
         console.error(`LLM validation failed on retry #${i + 1}:`, { errors: res.errors, raw: text });
         llmValidationFailures.inc();
@@ -317,6 +348,11 @@ export class AIService {
         try {
           const status = (e as any)?.response?.status ?? (e as any)?.status ?? null;
           const data = (e as any)?.response?.data ?? (e as any)?.data ?? null;
+          // If it's a 413 (request too large), stop retrying to avoid wasting tokens
+          if (status === 413) {
+            console.error(`LLM call error retry #${i + 1}: Request too large (413), aborting retries`);
+            break;
+          }
           console.error(`LLM call error during retry #${i + 1}: status=${status}`, data ?? e);
         } catch (logErr) {
           console.error(`LLM call error during retry #${i + 1}:`, e);
@@ -334,6 +370,60 @@ export class AIService {
       confidence: 0,
       metadata: {}
     };
+  }
+
+  // Compact prompt builder for Groq (token-efficient)
+  buildCompactPrompt(sim: Simulation, analysis: AnalysisResult, extraContext: any = {}) {
+    const parts: string[] = [];
+    
+    // Revenue
+    if (extraContext.revenue) {
+      parts.push(`Revenu: ${extraContext.revenue.category} (${extraContext.revenue.originalAmount}→${extraContext.revenue.newAmount} MGA)`);
+    }
+    
+    // Time & Season
+    if (extraContext.time) {
+      const season = extraContext.time.season || 'N/A';
+      const period = extraContext.time.period || 1;
+      const trend = extraContext.time.trend?.percentChange?.toFixed(1) || '0';
+      parts.push(`Période: ${period} mois, Saison: ${season}, Tendance: ${trend}%`);
+    }
+    
+    // Predictions
+    if (extraContext.predictions) {
+      const p = extraContext.predictions;
+      parts.push(`Prédictions: Moy=${p.average?.toFixed(1)}%, Lin=${p.linear?.toFixed(1)}%, IA=${p.neural?.toFixed(1)}%, Sais=${p.seasonal?.toFixed(1)}%`);
+    }
+
+    const prompt = `Analysez cette projection fiscale Madagascar (EN FRANÇAIS).
+
+DONNÉES: ${parts.join(' | ')}
+
+RÉPONDEZ avec ce JSON EXACT (utilisez "high"/"medium"/"low" pour impact):
+{
+  "prediction": {
+    "summary": "résumé 1 phrase",
+    "values": [{"key": "mois", "value": 100, "horizon": "2026"}]
+  },
+  "interpretation": "2-3 phrases: impact saison/contexte",
+  "risks": [
+    {"description": "risque 1", "probability": 0.5, "impact": "high"}
+  ],
+  "opportunities": [
+    {"description": "opportunité 1", "impact": 0.7}
+  ],
+  "recommendations": [
+    {"priority": 1, "action": "action 1", "justification": "pourquoi"}
+  ],
+  "confidence": 0.75,
+  "metadata": {"time": null, "weather": null, "economy": {}, "demography": {}}
+}
+
+IMPORTANT: 
+- risks.impact: UNIQUEMENT "high", "medium" ou "low" (PAS en français)
+- risks, opportunities, recommendations: OBJECTS, pas strings`;
+
+    return prompt;
   }
 
   // build a prompt that includes simulation + context and asks for structured JSON output
@@ -570,6 +660,93 @@ ${contextParts.join('\n') || 'Aucun contexte additionnel'}
 
     const prompt = this.buildPrompt(sim || (analysis as any).simulation, analysis, extraContext);
 
+    // Groq provider path (OpenAI-compatible)
+    if (AI_PROVIDER === 'groq') {
+      if (!this.client) throw new Error('Groq client not configured');
+
+      console.log(`[AI Service] Using Groq with model: ${GROQ_MODEL}`);
+
+      // Build compact prompt for Groq (token limit: 12000)
+      const compactPrompt = this.buildCompactPrompt(sim || (analysis as any).simulation, analysis, extraContext);
+
+      const callModel = async (modelName: string) => {
+        return this.client.chat.completions.create({
+          model: modelName,
+          messages: [
+            { role: 'system', content: 'Analyste financier expert. Répondez EN FRANÇAIS avec un JSON valide.' },
+            { role: 'user', content: compactPrompt },
+          ],
+          max_tokens: 1500,
+          temperature: 0.7,
+        });
+      };
+
+      let resp: any;
+      let usedModel = GROQ_MODEL;
+      try {
+        resp = await callModel(GROQ_MODEL);
+      } catch (err: any) {
+        const msg = err?.message || String(err);
+        console.error(`[Groq] Model ${GROQ_MODEL} failed:`, msg);
+        // Try fallback to fastest model
+        try {
+          console.warn(`[Groq] Retrying with fallback model: llama-3.1-8b-instant`);
+          resp = await callModel('llama-3.1-8b-instant');
+          usedModel = 'llama-3.1-8b-instant';
+        } catch (err2: any) {
+          const textErr = err2?.message || String(err2);
+          const updatedErrAnalysis = analysis;
+          updatedErrAnalysis.resultData = {
+            ...updatedErrAnalysis.resultData,
+            aiError: textErr,
+            aiProvider: AI_PROVIDER,
+            aiModel: GROQ_MODEL,
+            aiAt: new Date().toISOString(),
+          } as any;
+          await this.analysisRepo.save(updatedErrAnalysis as any);
+          throw new Error(`Groq provider error: ${textErr}`);
+        }
+      }
+
+      let text = resp.choices?.[0]?.message?.content ?? resp.choices?.[0]?.text ?? '';
+
+      // For Groq, use compact prompt for retries to avoid token limit
+      const modelCaller = async (p: string) => {
+        // Use compact prompt for retry to stay under token limit
+        const retryPrompt = this.buildCompactPrompt(sim || (analysis as any).simulation, analysis, extraContext);
+        const resp2 = await this.client.chat.completions.create({
+          model: usedModel,
+          messages: [
+            { role: 'system', content: 'Produisez UNIQUEMENT JSON valide EN FRANÇAIS.' },
+            { role: 'user', content: retryPrompt },
+          ],
+          max_tokens: 1500,
+          temperature: 0.7,
+        });
+        return resp2.choices?.[0]?.message?.content ?? resp2.choices?.[0]?.text ?? '';
+      };
+
+      const parsed: any = await this.retryValidateAndRepair(text, compactPrompt, modelCaller, 2);
+
+      const updated = analysis;
+      updated.resultData = {
+        ...updated.resultData,
+        aiAnalysis: parsed,
+        aiRaw: text,
+        aiProvider: AI_PROVIDER,
+        aiModel: usedModel,
+        aiAt: new Date().toISOString(),
+      } as any;
+
+      try {
+        const short = (parsed && parsed.repercussions) ? (typeof parsed.repercussions === 'string' ? parsed.repercussions.slice(0, 200) : JSON.stringify(parsed.repercussions).slice(0, 200)) : '';
+        updated.summary = `${updated.summary || ''} | AI: ${short}`;
+      } catch {}
+
+      await this.analysisRepo.save(updated as any);
+      return parsed;
+    }
+
     // OpenAI provider path (unchanged behavior with fallback model)
     if (AI_PROVIDER === 'openai') {
       if (!this.client) throw new Error('OpenAI client not configured');
@@ -666,6 +843,13 @@ ${contextParts.join('\n') || 'Aucun contexte additionnel'}
 
     // Gemini provider path: prefer the official Google Generative AI client (@google/genai) when available.
     if (AI_PROVIDER === 'gemini') {
+      // Recharger la clé API à chaque appel pour prendre en compte les changements
+      const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
+      
+      console.log(`[AI Service] Utilisation de la clé API Gemini: ${GEMINI_API_KEY.substring(0, 20)}...`);
+      console.log(`[AI Service] Modèle Gemini: ${GEMINI_MODEL}`);
+      console.log(`[AI Service] Longueur du prompt: ${prompt.length} caractères`);
+      
       if (!GEMINI_API_KEY) {
         const textErr = 'GEMINI_API_KEY not configured';
         const updatedErrAnalysis = analysis;
@@ -689,14 +873,17 @@ ${contextParts.join('\n') || 'Aucun contexte additionnel'}
 
       // Compose finalPrompt = strict system prompt + user prompt to strongly enforce schema.
       const finalPrompt = GEMINI_SYSTEM_PROMPT + '\n\n' + prompt;
+      console.log(`[AI Service] Longueur du prompt final: ${finalPrompt.length} caractères`);
 
       try {
+        console.log('[AI Service] Tentative d\'utilisation du client SDK @google/genai');
         // dynamic require to avoid hard TypeScript dependency assumptions
         // eslint-disable-next-line @typescript-eslint/no-var-requires
         const genai = require('@google/genai');
 
         // Prefer explicit GoogleGenAI usage when available (clear payload shape).
         const PROJECT = process.env.GENAI_PROJECT || process.env.GOOGLE_CLOUD_PROJECT || process.env.GOOGLE_PROJECT || undefined;
+        console.log(`[AI Service] PROJECT configuré: ${PROJECT ? 'Oui' : 'Non (sera ignoré)'}`);
         let client: any = null;
 
         if (genai?.GoogleGenAI && PROJECT) {
@@ -843,55 +1030,62 @@ ${contextParts.join('\n') || 'Aucun contexte additionnel'}
       } catch (err) {
         // record the fact we couldn't use the client and continue to axios fallback
         lastError = err;
-        console.warn('Official @google/genai client not usable; falling back to REST. Error:', err?.message || err);
+        console.warn('[AI Service] Client SDK non utilisable, passage au fallback REST. Erreur:', err?.message || err);
       }
 
       // If the client branch didn't produce text, fall back to a REST attempt.
-      // Different versions of the Generative Language REST API expect different request shapes,
-      // so try several payload variants until one succeeds.
+      // Use the official Gemini REST API format only
       if (!text) {
-        const tryPostVariants = async (baseUrl: string, headers: any, p: string) => {
-          const variants = [
-            // Preferred, documented shape
-            { body: { contents: [{ parts: [{ text: p }] }], generationConfig: { maxOutputTokens: 2048, temperature: 0.2 } }, name: 'contents+generationConfig' },
-            // Some older endpoints/clients used a `prompt.text` shape; try with generationConfig if accepted
-            { body: { prompt: { text: p }, generationConfig: { maxOutputTokens: 2048, temperature: 0.2 } }, name: 'prompt.text+generationConfig' },
-            { body: { input: p, maxOutputTokens: 2048, temperature: 0.2 }, name: 'input' },
-            { body: { instances: [{ input: p }], parameters: { maxOutputTokens: 2048, temperature: 0.2 } }, name: 'instances+parameters' },
-            { body: { messages: [{ role: 'user', content: p }] }, name: 'messages' },
-          ];
-          let lastErr: any = null;
-          for (const v of variants) {
-            try {
-              const res = await axios.post(baseUrl, v.body, { headers });
-              const extracted = AIService.extractGeminiTextFromData(res.data);
-              if (extracted) {
-                return { text: AIService.cleanLLMText(extracted), variant: v.name };
-              }
-              // continue trying variants if no textual content
-            } catch (err: any) {
-              lastErr = err;
-              // continue to next variant
-            }
+        console.log('[AI Service] Tentative d\'appel REST API Gemini...');
+        const callGeminiREST = async (baseUrl: string, headers: any, p: string) => {
+          // Official Gemini REST API format - ONLY use this format
+          const body = { 
+            contents: [{ parts: [{ text: p }] }], 
+            generationConfig: { 
+              maxOutputTokens: 2048, 
+              temperature: 0.7  // Temperature ajustée à 0.7 comme recommandé
+            } 
+          };
+          
+          console.log('[AI Service] Envoi requête REST avec format officiel Gemini');
+          const res = await axios.post(baseUrl, body, { headers, timeout: 60000 });
+          
+          // Vérification de la réponse
+          if (!res.data) {
+            throw new Error('API returned empty response');
           }
-          throw lastErr || new Error('No variant produced a response');
+          
+          if (res.data.error) {
+            throw new Error(`Gemini API error: ${res.data.error.message || JSON.stringify(res.data.error)}`);
+          }
+          
+          const extracted = AIService.extractGeminiTextFromData(res.data);
+          if (!extracted) {
+            console.error('[AI Service] Réponse Gemini sans texte:', JSON.stringify(res.data).slice(0, 500));
+            throw new Error('No text content in Gemini response');
+          }
+          
+          return AIService.cleanLLMText(extracted);
         };
 
         try {
           const useKeyParam = typeof GEMINI_API_KEY === 'string' && GEMINI_API_KEY.startsWith('AIza');
-          const url = useKeyParam ? `https://generativelanguage.googleapis.com/v1/models/${usedModel}:generateContent?key=${GEMINI_API_KEY}` : `https://generativelanguage.googleapis.com/v1/models/${usedModel}:generateContent`;
+          const url = useKeyParam ? `https://generativelanguage.googleapis.com/v1beta/models/${usedModel}:generateContent?key=${GEMINI_API_KEY}` : `https://generativelanguage.googleapis.com/v1beta/models/${usedModel}:generateContent`;
           const headers: any = {};
           if (!useKeyParam) headers['Authorization'] = `Bearer ${GEMINI_API_KEY}`;
-          const got = await tryPostVariants(url, headers, finalPrompt);
-          text = got.text;
+          console.log(`[AI Service] URL REST: ${url.substring(0, 100)}...`);
+          
+          text = await callGeminiREST(url, headers, finalPrompt);
+          console.log(`[AI Service] ✓ Réponse REST reçue, longueur: ${text.length} caractères`);
         } catch (err: any) {
           lastError = err;
           const status = err?.response?.status;
           const data = err?.response?.data;
+          console.error(`[AI Service] ✗ Erreur REST API: status=${status}`, data || err?.message);
           // If REST returns 404 for the model, attempt to list models via REST and try alternatives.
           if (status === 404) {
             try {
-              const listUrl = `https://generativelanguage.googleapis.com/v1/models?key=${GEMINI_API_KEY}`;
+              const listUrl = `https://generativelanguage.googleapis.com/v1beta/models?key=${GEMINI_API_KEY}`;
               const listRes = await axios.get(listUrl);
               const models = listRes.data?.models ?? [];
               const candidates = (models as any[])
@@ -902,14 +1096,15 @@ ${contextParts.join('\n') || 'Aucun contexte additionnel'}
               for (const alt of candidates) {
                 try {
                   const useKeyParam2 = typeof GEMINI_API_KEY === 'string' && GEMINI_API_KEY.startsWith('AIza');
-                  const url2 = useKeyParam2 ? `https://generativelanguage.googleapis.com/v1/models/${alt}:generateContent?key=${GEMINI_API_KEY}` : `https://generativelanguage.googleapis.com/v1/models/${alt}:generateContent`;
+                  const url2 = useKeyParam2 ? `https://generativelanguage.googleapis.com/v1beta/models/${alt}:generateContent?key=${GEMINI_API_KEY}` : `https://generativelanguage.googleapis.com/v1beta/models/${alt}:generateContent`;
                   const headers2: any = {};
                   if (!useKeyParam2) headers2['Authorization'] = `Bearer ${GEMINI_API_KEY}`;
-                  const got2 = await tryPostVariants(url2, headers2, finalPrompt);
-                  text = got2.text;
+                  console.log(`[AI Service] Tentative avec modèle alternatif: ${alt}`);
+                  text = await callGeminiREST(url2, headers2, finalPrompt);
                   if (text) { usedModel = alt; lastError = null; break; }
                 } catch (err2: any) {
                   lastError = err2;
+                  console.warn(`[AI Service] Modèle alternatif ${alt} échoué:`, err2?.message);
                 }
               }
             } catch (listErr) {
@@ -934,6 +1129,7 @@ ${contextParts.join('\n') || 'Aucun contexte additionnel'}
         const err = lastError;
         const status = err?.response?.status ?? err?.code ?? null;
         const data = err?.response?.data ?? null;
+        console.error('[AI Service] ✗ Échec final de l\'appel Gemini:', { status, message: err?.message, data });
         const textErr = `Gemini error: status=${status} message=${err?.message || String(err)}`;
         const updatedErrAnalysis = analysis;
         updatedErrAnalysis.resultData = {
@@ -951,16 +1147,21 @@ ${contextParts.join('\n') || 'Aucun contexte additionnel'}
         throw new Error(textErr);
       }
 
+      console.log(`[AI Service] ✓ Texte reçu de Gemini, longueur: ${text?.length || 0} caractères`);
+
       // Try validation + retry using a simple REST-based model caller for Gemini
       let parsed: any = null;
       try {
         const modelCaller = async (p: string) => {
           const useKeyParam = typeof GEMINI_API_KEY === 'string' && GEMINI_API_KEY.startsWith('AIza');
-          const url = useKeyParam ? `https://generativelanguage.googleapis.com/v1/models/${usedModel}:generateContent?key=${GEMINI_API_KEY}` : `https://generativelanguage.googleapis.com/v1/models/${usedModel}:generateContent`;
+          const url = useKeyParam ? `https://generativelanguage.googleapis.com/v1beta/models/${usedModel}:generateContent?key=${GEMINI_API_KEY}` : `https://generativelanguage.googleapis.com/v1beta/models/${usedModel}:generateContent`;
           const headers: any = {};
           if (!useKeyParam) headers['Authorization'] = `Bearer ${GEMINI_API_KEY}`;
-          // Use the documented REST payload shape: contents[].parts[].text + generationConfig
-          const res = await axios.post(url, { contents: [{ parts: [{ text: p }] }], generationConfig: { maxOutputTokens: 2048, temperature: 0.2 } }, { headers });
+          // Use the documented REST payload shape with temperature 0.7
+          const res = await axios.post(url, { 
+            contents: [{ parts: [{ text: p }] }], 
+            generationConfig: { maxOutputTokens: 2048, temperature: 0.7 } 
+          }, { headers, timeout: 60000 });
           const extracted = AIService.extractGeminiTextFromData(res.data);
           return AIService.cleanLLMText(extracted || '');
         };

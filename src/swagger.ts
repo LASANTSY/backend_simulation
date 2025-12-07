@@ -591,6 +591,7 @@ const swaggerSpec = {
                     summary: 'Recette valide',
                     value: {
                       name: 'Impôt Foncier sur la Propriété Bâtie (IFPB)',
+                      status: 'valid',
                       description: '- Base légale : Code Général des Impôts...\n- Nomenclature PCOP : Classe 6...',
                       municipality_id: 'antananarivo-001'
                     }
@@ -599,6 +600,7 @@ const swaggerSpec = {
                     summary: 'Recette non conforme',
                     value: {
                       name: null,
+                      status: 'invalid',
                       description: 'ERREUR : La recette fournie ne correspond à aucune recette...',
                       municipality_id: 'antananarivo-001'
                     }
@@ -852,6 +854,12 @@ const swaggerSpec = {
             nullable: true,
             description: 'Nom officiel normalisé selon PCOP/LFI, ou null si non conforme',
             example: 'Impôt Foncier sur la Propriété Bâtie (IFPB)'
+          },
+          status: {
+            type: 'string',
+            enum: ['valid', 'invalid', 'ambiguous', 'pending'],
+            description: 'Statut de la validation : valid (recette conforme normalisée), invalid (recette non conforme), ambiguous (plusieurs correspondances possibles), pending (en attente)',
+            example: 'valid'
           },
           description: {
             type: 'string',

@@ -10,9 +10,6 @@ import AppDataSource from '../data-source';
 
 dotenv.config();
 
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
-
 class RevenueValidationService {
   private validationRepository: Repository<RevenueValidation>;
 
@@ -80,6 +77,7 @@ class RevenueValidationService {
       // Retourner la réponse formatée
       return {
         name: parsedResponse.name,
+        status: validation.status,
         description: parsedResponse.description,
         municipality_id: dto.municipality_id,
       };
@@ -90,9 +88,21 @@ class RevenueValidationService {
       validation.errorMessage = error.message;
       await this.validationRepository.save(validation);
 
+      // Message d'erreur personnalisé selon le type d'erreur
+      let userMessage = `ERREUR SYSTÈME : Une erreur s'est produite lors de l'analyse de la recette.`;
+      
+      if (error.message.includes('QUOTA_EXCEEDED')) {
+        userMessage = `QUOTA API DÉPASSÉ : Le quota de l'API Gemini a été atteint. Veuillez réessayer dans quelques instants ou contacter l'administrateur pour augmenter le quota.`;
+      } else if (error.message.includes('timeout')) {
+        userMessage = `TIMEOUT : L'API a mis trop de temps à répondre. Veuillez réessayer.`;
+      } else {
+        userMessage += ` Détails: ${error.message}`;
+      }
+
       return {
         name: null,
-        description: `ERREUR SYSTÈME : Une erreur s'est produite lors de l'analyse de la recette. Détails: ${error.message}`,
+        status: 'error',
+        description: userMessage,
         municipality_id: dto.municipality_id,
       };
     }
@@ -249,13 +259,19 @@ Analyse maintenant la recette proposée et renvoie UNIQUEMENT le JSON de répons
   }
 
   /**
-   * Appelle l'API Gemini pour l'analyse
+   * Appelle l'API Gemini pour l'analyse avec retry automatique
    */
-  private async callGeminiAPI(prompt: string): Promise<any> {
+  private async callGeminiAPI(prompt: string, retryCount = 0, maxRetries = 2): Promise<any> {
+    // Recharger la clé API et le modèle à chaque appel pour prendre en compte les changements
+    const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
+    const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+    
     if (!GEMINI_API_KEY) {
       throw new Error('GEMINI_API_KEY non configurée dans les variables d\'environnement');
     }
 
+    console.log(`[RevenueValidation] Utilisation de la clé API: ${GEMINI_API_KEY.substring(0, 20)}...`);
+    console.log(`[RevenueValidation] Utilisation du modèle: ${GEMINI_MODEL}`);
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
 
     try {
@@ -282,19 +298,61 @@ Analyse maintenant la recette proposée et renvoie UNIQUEMENT le JSON de répons
           headers: {
             'Content-Type': 'application/json',
           },
-          timeout: 60000, // 60 secondes
+          timeout: 30000, // 30 secondes (réduit de 60s)
         },
       );
 
       console.log('[RevenueValidation] Réponse reçue de Gemini API');
       return response.data;
     } catch (error: any) {
-      console.error(`[RevenueValidation] Erreur lors de l'appel à Gemini API: ${error.message}`);
+      console.error(`[RevenueValidation] Erreur lors de l'appel à Gemini API (tentative ${retryCount + 1}/${maxRetries + 1}): ${error.message}`);
+      
       if (error.response) {
         console.error(`[RevenueValidation] Détails de l'erreur: ${JSON.stringify(error.response.data)}`);
+        
+        // Gérer spécifiquement l'erreur 429 (quota dépassé)
+        if (error.response.status === 429) {
+          // Extraire le délai de retry si disponible
+          let retryAfter = 45; // Par défaut 45 secondes
+          
+          try {
+            const retryDelay = error.response.data?.error?.details?.find(
+              (d: any) => d['@type'] === 'type.googleapis.com/google.rpc.RetryInfo'
+            )?.retryDelay;
+            
+            if (retryDelay) {
+              retryAfter = parseInt(retryDelay.replace('s', '')) || 45;
+            }
+          } catch (parseError) {
+            console.warn('[RevenueValidation] Impossible d\'extraire le délai de retry, utilisation de la valeur par défaut');
+          }
+
+          // Pour les erreurs de quota, ne pas retenter - échouer immédiatement
+          console.log(`[RevenueValidation] Quota dépassé. Échec immédiat sans retry.`);
+          throw new Error(
+            `QUOTA_EXCEEDED: Le quota de l'API Gemini a été dépassé. Veuillez réessayer dans ${retryAfter} secondes ou vérifier votre plan sur https://ai.dev/usage`
+          );
+        }
       }
-      throw new Error(`Échec de l'appel à l'API Gemini: ${error.message}`);
+
+      // Pour les autres erreurs, retry avec délai exponentiel
+      if (retryCount < maxRetries) {
+        const waitTime = Math.pow(2, retryCount) * 1000; // 1s, 2s, 4s
+        console.log(`[RevenueValidation] Nouvelle tentative dans ${waitTime / 1000}s...`);
+        
+        await this.sleep(waitTime);
+        return this.callGeminiAPI(prompt, retryCount + 1, maxRetries);
+      }
+
+      throw new Error(`Échec de l'appel à l'API Gemini après ${maxRetries + 1} tentatives: ${error.message}`);
     }
+  }
+
+  /**
+   * Utilitaire pour attendre un délai
+   */
+  private sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 
   /**
